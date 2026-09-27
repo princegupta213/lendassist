@@ -6,6 +6,7 @@
 
 > **Live Production App**: [https://lendassist.vercel.app](https://lendassist.vercel.app)  
 > **API Telemetry**: [https://lendassist.vercel.app/api/v1/analytics](https://lendassist.vercel.app/api/v1/analytics)  
+> **Adversarial Evaluation Framework**: [`ADVERSARIAL_EVALUATION.md`](./ADVERSARIAL_EVALUATION.md)  
 > **Portfolio Case Study**: [`PORTFOLIO_ENTRY.md`](./PORTFOLIO_ENTRY.md)  
 > **Product Requirements Document (PRD)**: [`PRD_LENDASSIST.md`](./PRD_LENDASSIST.md)  
 > **PM Interview Narrative**: [`PM_CASE_STUDY_LENDASSIST.md`](./PM_CASE_STUDY_LENDASSIST.md)  
