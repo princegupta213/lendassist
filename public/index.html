@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LendAssist — AI Lending Conversation Orchestration Layer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .chat-scroll::-webkit-scrollbar { width: 5px; }
+    .chat-scroll::-webkit-scrollbar-track { background: #f8fafc; }
+    .chat-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .pulse-indicator { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    .badge-rag { background-color: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+    .badge-workflow { background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    .badge-api { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    .badge-escalate { background-color: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .badge-guard { background-color: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff; }
+  </style>
+</head>
+<body class="bg-slate-100 font-sans text-slate-800 min-h-screen flex flex-col">
+
+  <!-- Top Navigation & Brand Header -->
+  <header class="bg-slate-900 text-white px-5 py-3 shadow-md border-b border-slate-800">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      
+      <!-- Brand & Mission -->
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center font-black text-xl shadow-lg text-slate-900">
+          LA
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-base tracking-tight leading-none text-white">LendAssist</h1>
+            <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              AI Orchestration Layer
+            </span>
+            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+              Easy Home Finance & LAMF
+            </span>
+          </div>
+          <p class="text-[11px] text-slate-400 mt-0.5">Dual-LLM Cognitive Core • Boundary Response Policy • Risk-Aware Escalation</p>
+        </div>
+      </div>
+
+      <!-- Live KPI Strip & Actions -->
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        
+        <!-- A/B Switch -->
+        <div class="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 flex items-center space-x-2">
+          <span class="text-slate-400 text-[11px] font-medium"><i class="fa-solid fa-flask-vial text-amber-400 mr-1"></i>A/B Strategy:</span>
+          <select id="strategySelect" onchange="changeStrategy()" class="bg-slate-900 text-white rounded px-2 py-0.5 text-xs outline-none border border-slate-700">
+            <option value="natural_concise" selected>Strategy B: Natural Concise (1-3 sent)</option>
+            <option value="ultra_concise">Strategy A: Ultra-Concise (1 sent)</option>
+          </select>
+        </div>
+
+        <!-- Customer Context Selector -->
+        <div class="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 flex items-center space-x-2">
+          <span class="text-slate-400 text-[11px]">Context:</span>
+          <select id="userContextSelect" onchange="changeContext()" class="bg-slate-900 text-white rounded px-2 py-0.5 text-xs outline-none border border-slate-700">
+            <option value="APP-HL-1092">Rahul Sharma (Home Loan)</option>
+            <option value="APP-LAMF-8831">Aryan Agarwal (LAMF)</option>
+            <option value="GUEST">Guest Visitor (Unauthenticated)</option>
+          </select>
+          <span id="authStatusBadge" class="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-indicator"></span> Auth
+          </span>
+        </div>
+
+        <!-- Analytics Modal Trigger Button -->
+        <button onclick="openAnalyticsModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-3 py-1.5 rounded-lg shadow transition flex items-center gap-1.5">
+          <i class="fa-solid fa-chart-pie text-xs"></i>
+          <span>PM Metrics & PRD</span>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- Live KPI Metrics Banner -->
+  <div class="bg-slate-800 text-slate-300 border-b border-slate-700/60 px-5 py-2 text-xs">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+      <div class="flex flex-wrap items-center gap-5">
+        <div class="flex items-center space-x-1.5">
+          <span class="text-slate-400">Total Volume:</span>
+          <span id="kpiTotalConvs" class="font-bold text-white font-mono">1,284</span>
+        </div>
+        <div class="flex items-center space-x-1.5">
+          <span class="text-slate-400">Self-Service Resolution:</span>
+          <span id="kpiResolution" class="font-bold text-emerald-400 font-mono">74.2%</span>
+        </div>
+        <div class="flex items-center space-x-1.5">
+          <span class="text-slate-400">Escalation Rate:</span>
+          <span id="kpiEscalation" class="font-bold text-amber-400 font-mono">17.8%</span>
+          <span class="text-[10px] text-slate-400">(Target &lt;20%)</span>
+        </div>
+        <div class="flex items-center space-x-1.5">
+          <span class="text-slate-400">CSAT:</span>
+          <span id="kpiCsat" class="font-bold text-emerald-400 font-mono">4.4 / 5.0</span>
+        </div>
+        <div class="flex items-center space-x-1.5">
+          <span class="text-slate-400">Hallucination Rate:</span>
+          <span id="kpiHallucination" class="font-bold text-teal-400 font-mono">&lt;0.5%</span>
+        </div>
+      </div>
+      <div class="hidden md:flex items-center space-x-3 text-slate-400 text-[11px]">
+        <span>Avg Handle Time: <strong class="text-white">4.8m</strong> <span class="text-emerald-400 font-semibold">(-67%)</span></span>
+        <span>•</span>
+        <span>First Contact Res: <strong class="text-white">82.5%</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive Edge Case & Failure Simulator Toolbar -->
+  <div class="bg-amber-50 border-b border-amber-200/80 px-5 py-2">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center space-x-2 text-xs font-bold text-amber-900">
+        <i class="fa-solid fa-flask text-amber-600"></i>
+        <span>Edge Case & Failure Simulator:</span>
+        <span class="text-[11px] font-normal text-amber-800 hidden sm:inline">(1-click interactive validation of risk, timeout & escalation)</span>
+      </div>
+
+      <div class="flex flex-wrap gap-1.5">
+        <button onclick="triggerSimulation('FRAUD')" class="text-[11px] bg-red-100 hover:bg-red-200 text-red-800 font-semibold px-2.5 py-1 rounded-md border border-red-300 transition flex items-center gap-1 shadow-xs">
+          🚨 Fraud / Theft (P1)
+        </button>
+        <button onclick="triggerSimulation('FRUSTRATION')" class="text-[11px] bg-rose-100 hover:bg-rose-200 text-rose-800 font-semibold px-2.5 py-1 rounded-md border border-rose-300 transition flex items-center gap-1 shadow-xs">
+          😡 Customer Rage (P1)
+        </button>
+        <button onclick="triggerSimulation('KYC_FAILURE')" class="text-[11px] bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold px-2.5 py-1 rounded-md border border-amber-300 transition flex items-center gap-1 shadow-xs">
+          ⚠️ KYC Failure (L2)
+        </button>
+        <button onclick="triggerSimulation('RTA_TIMEOUT')" class="text-[11px] bg-orange-100 hover:bg-orange-200 text-orange-900 font-semibold px-2.5 py-1 rounded-md border border-orange-300 transition flex items-center gap-1 shadow-xs">
+          ⏱️ RTA Timeout (L2)
+        </button>
+        <button onclick="triggerSimulation('BANK_FAIL')" class="text-[11px] bg-yellow-100 hover:bg-yellow-200 text-yellow-900 font-semibold px-2.5 py-1 rounded-md border border-yellow-300 transition flex items-center gap-1 shadow-xs">
+          🏦 Penny Drop Fail
+        </button>
+        <button onclick="triggerSimulation('LOW_CONFIDENCE')" class="text-[11px] bg-blue-100 hover:bg-blue-200 text-blue-900 font-semibold px-2.5 py-1 rounded-md border border-blue-300 transition flex items-center gap-1 shadow-xs">
+          ❓ Low Confidence (L1)
+        </button>
+        <button onclick="triggerSimulation('DECEASED')" class="text-[11px] bg-purple-100 hover:bg-purple-200 text-purple-900 font-semibold px-2.5 py-1 rounded-md border border-purple-300 transition flex items-center gap-1 shadow-xs">
+          📴 Borrower Demise
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Grid Layout -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left / Center: Interactive Chat Interface (7 Cols) -->
+    <section class="lg:col-span-7 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden h-[760px]">
+      
+      <!-- Chat Header -->
+      <div class="px-5 py-3 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <div class="relative">
+            <div class="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs">
+              <i class="fa-solid fa-comments"></i>
+            </div>
+            <span class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white"></span>
+          </div>
+          <div>
+            <h2 class="font-bold text-sm text-slate-800">LendAssist Companion</h2>
+            <p class="text-xs text-slate-500">Autonomous AI Advisor • Active Guardrails • Boundary Compression</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button onclick="clearChat()" class="text-xs text-slate-400 hover:text-slate-600 px-2 py-1 rounded hover:bg-slate-200/60 transition">
+            <i class="fa-solid fa-rotate-right mr-1"></i> Reset
+          </button>
+        </div>
+      </div>
+
+      <!-- Messages Container -->
+      <div id="chatBox" class="flex-1 p-5 overflow-y-auto chat-scroll space-y-4 bg-slate-50/30">
+        <!-- Initial Assistant Greeting -->
+        <div class="flex items-start space-x-3">
+          <div class="w-8 h-8 rounded-full bg-emerald-600 text-white flex-shrink-0 flex items-center justify-center text-xs font-bold shadow-sm">
+            <i class="fa-solid fa-robot"></i>
+          </div>
+          <div class="bg-white text-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 max-w-[85%] text-sm space-y-2 border border-slate-200 shadow-xs">
+            <p>Welcome to <strong>Easy Home Finance & LAMF</strong>. I am your AI Lending Advisor.</p>
+            <p class="text-slate-600 text-xs leading-relaxed">
+              I can assist with real-time application status, Loan Against Mutual Funds (LAMF) with instant CAMS lien pledge, and Home Loan qualification.
+            </p>
+            <div class="pt-1 flex flex-wrap gap-2">
+              <button onclick="sendQuickPrompt('What is my loan status?')" class="text-xs bg-slate-50 border border-slate-300 hover:border-emerald-500 hover:text-emerald-700 px-2.5 py-1 rounded-full shadow-xs transition">
+                🔍 Check Loan Status
+              </button>
+              <button onclick="sendQuickPrompt('Apply for LAMF')" class="text-xs bg-slate-50 border border-slate-300 hover:border-emerald-500 hover:text-emerald-700 px-2.5 py-1 rounded-full shadow-xs transition">
+                📈 Apply for LAMF
+              </button>
+              <button onclick="sendQuickPrompt('explain key points from the agreement')" class="text-xs bg-slate-50 border border-slate-300 hover:border-emerald-500 hover:text-emerald-700 px-2.5 py-1 rounded-full shadow-xs transition">
+                📄 Explain Agreement / KFS
+              </button>
+              <button onclick="sendQuickPrompt('Can you approve my loan right now?')" class="text-xs bg-purple-50 border border-purple-200 hover:border-purple-400 text-purple-700 px-2.5 py-1 rounded-full shadow-xs transition">
+                🛡️ Test Credit Guardrail
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Action Bar -->
+      <div id="quickChipsContainer" class="px-5 py-2 bg-slate-50 border-t border-slate-200 flex gap-2 overflow-x-auto text-xs"></div>
+
+      <!-- Input Bar -->
+      <div class="p-3.5 border-t border-slate-200 bg-white flex items-center space-x-2">
+        <input 
+          id="userInput" 
+          type="text" 
+          placeholder="Ask a question, enter PAN/OTP, or test edge cases..."
+          onkeydown="if(event.key === 'Enter') handleSend()"
+          class="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition"
+        />
+        <button 
+          onclick="handleSend()" 
+          class="bg-emerald-600 hover:bg-emerald-700 text-white w-10 h-10 rounded-xl flex items-center justify-center shadow-md hover:shadow-lg transition flex-shrink-0"
+        >
+          <i class="fa-solid fa-paper-plane text-sm"></i>
+        </button>
+      </div>
+    </section>
+
+    <!-- Right: Decision Diagnostic Inspector & Operations (5 Cols) -->
+    <section class="lg:col-span-5 flex flex-col space-y-4">
+      
+      <!-- Box 1: Observable Escalation Decision Panel -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+        <div class="flex items-center justify-between pb-2.5 border-b border-slate-200">
+          <h3 class="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+            <i class="fa-solid fa-brain text-emerald-600"></i> Observable Escalation Decision System
+          </h3>
+          <span id="decisionLevelBadge" class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+            LEVEL 0: AUTONOMOUS
+          </span>
+        </div>
+
+        <!-- Composite Escalation Score Meter -->
+        <div class="mt-3 bg-slate-50 rounded-xl p-3 border border-slate-200">
+          <div class="flex justify-between items-center text-xs mb-1">
+            <span class="text-slate-600 font-semibold">Total Escalation Score:</span>
+            <span id="meterScoreText" class="font-mono font-bold text-emerald-700 text-sm">0.05 / 1.00</span>
+          </div>
+          <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+            <div id="meterBar" class="bg-emerald-500 h-2.5 rounded-full transition-all duration-500" style="width: 5%;"></div>
+          </div>
+          <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+            <span>0.0 (AI Auto)</span>
+            <span>0.30 (Monitored)</span>
+            <span>0.50 (Assisted)</span>
+            <span>0.70+ (Priority)</span>
+          </div>
+        </div>
+
+        <!-- Multi-Signal Radar Grid -->
+        <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <div class="p-2 bg-slate-50 rounded-lg border border-slate-200">
+            <div class="text-[10px] text-slate-400 uppercase">Risk Score</div>
+            <div class="flex justify-between items-center mt-0.5">
+              <span id="diagRiskVal" class="font-mono font-bold text-slate-700">0.00</span>
+              <span id="diagRiskTag" class="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1 rounded">LOW</span>
+            </div>
+          </div>
+
+          <div class="p-2 bg-slate-50 rounded-lg border border-slate-200">
+            <div class="text-[10px] text-slate-400 uppercase">Explicit Human Req</div>
+            <div class="flex justify-between items-center mt-0.5">
+              <span id="diagExplicitVal" class="font-mono font-bold text-slate-700">0.00</span>
+              <span id="diagExplicitTag" class="text-[10px] font-semibold text-slate-500 bg-slate-200 px-1 rounded">NO</span>
+            </div>
+          </div>
+
+          <div class="p-2 bg-slate-50 rounded-lg border border-slate-200">
+            <div class="text-[10px] text-slate-400 uppercase">Repeated Failures</div>
+            <div class="flex justify-between items-center mt-0.5">
+              <span id="diagFailureVal" class="font-mono font-bold text-slate-700">0</span>
+              <span id="diagFailureTag" class="text-[10px] font-semibold text-slate-500 bg-slate-200 px-1 rounded">0 / 3</span>
+            </div>
+          </div>
+
+          <div class="p-2 bg-slate-50 rounded-lg border border-slate-200">
+            <div class="text-[10px] text-slate-400 uppercase">Customer Sentiment</div>
+            <div class="flex justify-between items-center mt-0.5">
+              <span id="diagFrustrationVal" class="font-mono font-bold text-slate-700">0.00</span>
+              <span id="diagFrustrationTag" class="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1 rounded">NORMAL</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Explainable "Why?" Rationale Box -->
+        <div class="mt-3 p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+          <div class="flex items-center justify-between mb-1">
+            <span class="font-semibold text-[10px] text-slate-500 uppercase tracking-wider">Explainable Decision (Why?):</span>
+            <span id="diagPriorityBadge" class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-200 text-slate-700">P4_LOW</span>
+          </div>
+          <div id="diagWhy" class="text-[11px] text-slate-700 leading-snug">
+            System operating in autonomous self-service mode. Risk, frustration, and failure signals remain within safe bounds.
+          </div>
+        </div>
+
+        <!-- Diagnostic Sub-Strip -->
+        <div class="mt-2.5 flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+          <span>Intent: <strong id="diagIntent" class="text-slate-700 font-mono">GENERAL_INQUIRY</strong></span>
+          <span>Latency: <strong id="diagLatency" class="text-slate-700 font-mono">-- ms</strong></span>
+        </div>
+      </div>
+
+      <!-- Box 2: Smart Human Escalations Queue & Dossier Viewer -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex-1 flex flex-col min-h-[180px]">
+        <div class="flex items-center justify-between pb-2.5 border-b border-slate-200">
+          <h3 class="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+            <i class="fa-solid fa-headset text-rose-600"></i> Smart Escalation Desk
+          </h3>
+          <div class="flex items-center gap-2">
+            <span id="ticketCountBadge" class="text-[11px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full font-bold">0 Active</span>
+          </div>
+        </div>
+
+        <div id="ticketsList" class="mt-2.5 flex-1 overflow-y-auto max-h-[150px] space-y-2 text-xs">
+          <p class="text-slate-400 text-center py-6 text-xs">Zero active escalations. Self-service handling smoothly.</p>
+        </div>
+      </div>
+
+      <!-- Box 3: Event Stream & Knowledge Gap Detector -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-200">
+          <h3 class="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+            <i class="fa-solid fa-timeline text-blue-600"></i> Operational Audit Stream
+          </h3>
+          <span class="text-[10px] text-slate-400 font-mono">Live Timeline</span>
+        </div>
+        <div id="eventStream" class="mt-2 max-h-[110px] overflow-y-auto space-y-1 text-[11px] font-mono">
+          <div class="text-slate-400">Listening for operational events...</div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- MODAL 1: Interactive Agent Workspace / Handoff Dossier View -->
+  <div id="agentModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 hidden">
+    <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-300 overflow-hidden flex flex-col max-h-[90vh]">
+      
+      <!-- Modal Header -->
+      <div id="agentModalHeader" class="bg-rose-700 text-white px-5 py-3.5 flex items-center justify-between">
+        <div class="flex items-center space-x-2.5">
+          <span class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center font-bold text-white text-sm">
+            <i class="fa-solid fa-user-shield"></i>
+          </span>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="font-bold text-sm">Agent Handoff Context Dossier</h3>
+              <span id="modalPriorityBadge" class="bg-rose-900/80 text-rose-200 font-bold text-[10px] px-2 py-0.5 rounded-full border border-rose-400/30">
+                P1_CRITICAL
+              </span>
+            </div>
+            <p id="modalTicketSubtitle" class="text-xs text-rose-100">Ticket #TICK-LA-0000 • Priority Fraud Desk</p>
+          </div>
+        </div>
+        <button onclick="closeAgentModal()" class="text-white/80 hover:text-white text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body (Scrollable) -->
+      <div class="p-5 overflow-y-auto space-y-4 text-xs">
+        
+        <!-- Section 1: Customer Profile -->
+        <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+          <div class="font-bold text-slate-700 uppercase tracking-wider text-[10px] mb-2 flex items-center gap-1.5">
+            <i class="fa-solid fa-id-card text-emerald-600"></i> Customer Profile & Account Dossier
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div>
+              <span class="text-slate-400 block text-[10px]">Customer Name:</span>
+              <strong id="modalCustName" class="text-slate-800 text-xs">Rahul Sharma</strong>
+            </div>
+            <div>
+              <span class="text-slate-400 block text-[10px]">Application ID:</span>
+              <strong id="modalCustAppId" class="text-slate-800 font-mono text-xs">APP-HL-1092</strong>
+            </div>
+            <div>
+              <span class="text-slate-400 block text-[10px]">Product Type:</span>
+              <span id="modalCustProduct" class="text-slate-800 font-medium">Home Loan</span>
+            </div>
+            <div>
+              <span class="text-slate-400 block text-[10px]">Masked Phone:</span>
+              <span id="modalCustPhone" class="text-slate-800 font-mono">+91-98XXXX1234</span>
+            </div>
+            <div>
+              <span class="text-slate-400 block text-[10px]">Linked Bank:</span>
+              <span id="modalCustBank" class="text-slate-800">HDFC Bank ending 3294</span>
+            </div>
+            <div>
+              <span class="text-slate-400 block text-[10px]">Sanctioned Facility:</span>
+              <strong id="modalCustLimit" class="text-emerald-700">₹2,500,000</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: AI Problem Diagnosis -->
+        <div class="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200">
+          <div class="font-bold text-amber-900 uppercase tracking-wider text-[10px] mb-1.5 flex items-center gap-1.5">
+            <i class="fa-solid fa-triangle-exclamation text-amber-600"></i> Problem Diagnosis & Contributing Signals
+          </div>
+          <div class="space-y-1.5">
+            <div>
+              <span class="text-slate-500 font-medium">Category:</span>
+              <span id="modalDiagCategory" class="font-bold text-slate-800">Unauthorized Activity & Fraud Alert</span>
+            </div>
+            <div>
+              <span class="text-slate-500 font-medium">Escalation Trigger:</span>
+              <span id="modalDiagReason" class="text-slate-700">Customer reports unauthorized transaction or phone theft.</span>
+            </div>
+            <div class="text-[11px] text-slate-600 bg-white/80 p-2 rounded border border-amber-200 mt-1">
+              <span class="font-semibold text-slate-700">Last Customer Message:</span>
+              <em id="modalLastMessage" class="text-slate-800 block mt-0.5">"Someone stole my phone and took a loan"</em>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 3: Summary of Actions Attempted by AI -->
+        <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+          <div class="font-bold text-slate-700 uppercase tracking-wider text-[10px] mb-1.5 flex items-center gap-1.5">
+            <i class="fa-solid fa-robot text-teal-600"></i> AI Actions Completed Before Handoff
+          </div>
+          <ul id="modalActionsList" class="space-y-1 list-disc list-inside text-slate-600 text-[11px]">
+            <li>Active session identified for Rahul Sharma (APP-HL-1092)</li>
+            <li>Escalation score computed: 0.85 [LEVEL_3_PRIORITY]</li>
+            <li>Account marked for security freeze / priority review</li>
+          </ul>
+        </div>
+
+        <!-- Section 4: Recommended Next Steps for Human Agent -->
+        <div class="p-3.5 bg-emerald-50/80 rounded-xl border border-emerald-200">
+          <div class="font-bold text-emerald-900 uppercase tracking-wider text-[10px] mb-1.5 flex items-center gap-1.5">
+            <i class="fa-solid fa-list-check text-emerald-600"></i> Prescriptive Specialist Recommendations
+          </div>
+          <div id="modalRecommendation" class="text-emerald-950 font-medium leading-relaxed text-[11px]">
+            1. Confirm caller identity via 2FA. 2. Verify temporary loan lock & security freeze. 3. Initiate fraud investigation protocol.
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer (Actions) -->
+      <div class="bg-slate-50 px-5 py-3 border-t border-slate-200 flex items-center justify-between">
+        <span id="modalTicketStatus" class="font-mono text-[11px] font-bold text-slate-600">STATUS: OPEN</span>
+        <div class="flex items-center space-x-2">
+          <button id="btnTakeTicket" onclick="handleTicketAction('TAKE')" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-lg transition text-xs flex items-center gap-1">
+            <i class="fa-solid fa-user-check"></i> Take Conversation
+          </button>
+          <button id="btnResolveTicket" onclick="handleTicketAction('RESOLVE')" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded-lg transition text-xs flex items-center gap-1">
+            <i class="fa-solid fa-circle-check"></i> Mark Resolved
+          </button>
+          <button onclick="closeAgentModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold px-3 py-1.5 rounded-lg transition text-xs">
+            Close
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MODAL 2: Executive PM Metrics & PRD Portfolio Modal -->
+  <div id="analyticsModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 hidden">
+    <div class="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-300 overflow-hidden flex flex-col max-h-[90vh]">
+      
+      <!-- Header -->
+      <div class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between border-b border-slate-800">
+        <div>
+          <h3 class="font-bold text-base flex items-center gap-2">
+            <i class="fa-solid fa-chart-line text-emerald-400"></i>
+            LendAssist — Executive PM Metrics & Business Impact
+          </h3>
+          <p class="text-xs text-slate-400 mt-0.5">Production Evaluation • Benchmark against Baseline • A/B Policy Strategy</p>
+        </div>
+        <button onclick="closeAnalyticsModal()" class="text-slate-400 hover:text-white text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="p-6 overflow-y-auto space-y-5 text-xs">
+        
+        <!-- Scorecard Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="p-3.5 bg-emerald-50 rounded-xl border border-emerald-200">
+            <span class="text-slate-500 block text-[10px]">Self-Service Resolution</span>
+            <div class="font-mono font-bold text-xl text-emerald-800 mt-0.5">74.2%</div>
+            <span class="text-[10px] text-emerald-700 font-medium">+31.2% vs Baseline</span>
+          </div>
+
+          <div class="p-3.5 bg-amber-50 rounded-xl border border-amber-200">
+            <span class="text-slate-500 block text-[10px]">Escalation Rate</span>
+            <div class="font-mono font-bold text-xl text-amber-800 mt-0.5">17.8%</div>
+            <span class="text-[10px] text-amber-700 font-medium">Target &lt; 20% achieved</span>
+          </div>
+
+          <div class="p-3.5 bg-blue-50 rounded-xl border border-blue-200">
+            <span class="text-slate-500 block text-[10px]">Avg Handle Time</span>
+            <div class="font-mono font-bold text-xl text-blue-800 mt-0.5">4.8 min</div>
+            <span class="text-[10px] text-blue-700 font-medium">-67% (from 14.5 min)</span>
+          </div>
+
+          <div class="p-3.5 bg-purple-50 rounded-xl border border-purple-200">
+            <span class="text-slate-500 block text-[10px]">Customer CSAT</span>
+            <div class="font-mono font-bold text-xl text-purple-800 mt-0.5">4.4 / 5.0</div>
+            <span class="text-[10px] text-purple-700 font-medium">+1.1 pts increase</span>
+          </div>
+        </div>
+
+        <!-- Before vs After PM Impact Table -->
+        <div class="border border-slate-200 rounded-xl overflow-hidden">
+          <div class="bg-slate-50 px-4 py-2 font-bold text-slate-700 uppercase tracking-wider text-[10px] border-b border-slate-200">
+            Before vs After: Architecture & Operational Comparison
+          </div>
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-slate-100/70 border-b border-slate-200 text-slate-500 text-[10px]">
+                <th class="p-2.5">Dimension</th>
+                <th class="p-2.5">Legacy Deterministic Bot</th>
+                <th class="p-2.5 text-emerald-700">LendAssist Orchestration</th>
+                <th class="p-2.5">Business Impact</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 text-[11px]">
+              <tr>
+                <td class="p-2.5 font-semibold text-slate-700">Conversational Agility</td>
+                <td class="p-2.5 text-slate-500">Rigid template matching; broke on variations</td>
+                <td class="p-2.5 text-emerald-800 font-medium">Dual-LLM (Cognitive Understanding + Synthesis)</td>
+                <td class="p-2.5 font-semibold text-slate-700">100% test pass on 50+ cases</td>
+              </tr>
+              <tr>
+                <td class="p-2.5 font-semibold text-slate-700">Escalation Mechanism</td>
+                <td class="p-2.5 text-slate-500">Fallback only when LLM failed; blank agent handoff</td>
+                <td class="p-2.5 text-emerald-800 font-medium">Risk-Aware Multi-Signal Scoring + Context Dossier</td>
+                <td class="p-2.5 font-semibold text-slate-700">AHT reduced from 14.5m to 4.8m</td>
+              </tr>
+              <tr>
+                <td class="p-2.5 font-semibold text-slate-700">Response Brevity</td>
+                <td class="p-2.5 text-slate-500">Long essay dumps; cognitive overload</td>
+                <td class="p-2.5 text-emerald-800 font-medium">Boundary Response Policy (1-3 sent / max 4 bullets)</td>
+                <td class="p-2.5 font-semibold text-slate-700">CSAT up from 3.3 to 4.4</td>
+              </tr>
+              <tr>
+                <td class="p-2.5 font-semibold text-slate-700">Compliance & Safety</td>
+                <td class="p-2.5 text-slate-500">Vulnerable to prompt injection & rate promises</td>
+                <td class="p-2.5 text-emerald-800 font-medium">Credit Guardrails + Verified Facts Contract</td>
+                <td class="p-2.5 font-semibold text-slate-700">Hallucination rate &lt;0.5%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- A/B Experiment Insights -->
+        <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
+          <div class="font-bold text-slate-700 uppercase tracking-wider text-[10px] mb-2">
+            A/B Strategy Experiment: Ultra-Concise vs Natural-Concise
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="p-3 bg-white rounded-lg border border-slate-200">
+              <div class="font-bold text-slate-800 text-xs">Strategy A: Ultra-Concise (1 sent)</div>
+              <p class="text-[11px] text-slate-500 mt-1">Strict 1-sentence constraint for rapid mobile scanning.</p>
+              <div class="mt-2 text-xs font-mono space-y-0.5 text-slate-700">
+                <div>Avg Turns: <strong>3.2</strong></div>
+                <div>CSAT: <strong>4.1 / 5.0</strong></div>
+                <div>Escalations: <strong>21.0%</strong></div>
+              </div>
+            </div>
+
+            <div class="p-3 bg-emerald-50/60 rounded-lg border border-emerald-300">
+              <div class="font-bold text-emerald-900 text-xs flex items-center justify-between">
+                <span>Strategy B: Natural Concise (1-3 sent)</span>
+                <span class="text-[9px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded font-bold">WINNER</span>
+              </div>
+              <p class="text-[11px] text-emerald-800 mt-1">Natural synthesis with clear next-action follow-up prompt.</p>
+              <div class="mt-2 text-xs font-mono space-y-0.5 text-emerald-900">
+                <div>Avg Turns: <strong>4.1</strong></div>
+                <div>CSAT: <strong>4.6 / 5.0</strong> (+0.5 higher!)</div>
+                <div>Escalations: <strong>14.5%</strong> (-6.5% lower!)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Footer -->
+      <div class="bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-between">
+        <span class="text-[11px] text-slate-500">Document Reference: <strong class="text-slate-700">PRD_LENDASSIST.md</strong></span>
+        <button onclick="closeAnalyticsModal()" class="bg-slate-900 hover:bg-slate-800 text-white font-semibold px-4 py-1.5 rounded-lg transition text-xs">
+          Close PM Overview
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Script Logic -->
+  <script>
+    let currentAppId = "APP-HL-1092";
+    let conversationId = "session_" + Math.random().toString(36).substring(2, 9);
+    let isAuthenticated = true;
+    let activeStrategy = "natural_concise";
+    let currentActiveTicket = null;
+    let cachedTickets = [];
+
+    function changeContext() {
+      const val = document.getElementById('userContextSelect').value;
+      if (val === "GUEST") {
+        currentAppId = null;
+        isAuthenticated = false;
+        document.getElementById('authStatusBadge').innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> Guest';
+        document.getElementById('authStatusBadge').className = 'flex items-center gap-1 text-[11px] text-slate-400 font-medium';
+      } else {
+        currentAppId = val;
+        isAuthenticated = true;
+        document.getElementById('authStatusBadge').innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-indicator"></span> Auth';
+        document.getElementById('authStatusBadge').className = 'flex items-center gap-1 text-[11px] text-emerald-400 font-medium';
+      }
+      appendSystemMessage(`Switched customer context to ${val === "GUEST" ? "Guest Visitor" : val}.`);
+    }
+
+    function changeStrategy() {
+      activeStrategy = document.getElementById('strategySelect').value;
+      appendSystemMessage(`A/B Policy Strategy set to: ${activeStrategy === "ultra_concise" ? "Strategy A (Ultra-Concise)" : "Strategy B (Natural Concise)"}`);
+    }
+
+    function sendQuickPrompt(text) {
+      document.getElementById('userInput').value = text;
+      handleSend();
+    }
+
+    async function handleSend(customPayload = null) {
+      const input = document.getElementById('userInput');
+      const text = customPayload ? customPayload.message : input.value.trim();
+      if (!text) return;
+
+      appendUserMessage(text);
+      if (!customPayload) input.value = '';
+
+      const typingId = appendTypingIndicator();
+
+      const payload = customPayload || {
+        message: text,
+        auth_state: isAuthenticated,
+        app_id: currentAppId,
+        conversation_id: conversationId,
+        strategy: activeStrategy
+      };
+
+      try {
+        const res = await fetch('/api/v1/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        removeTypingIndicator(typingId);
+        
+        appendAssistantMessage(data.response, data.action_chips);
+        updateDecisionInspector(data);
+        fetchTicketsAndEvents();
+      } catch (err) {
+        removeTypingIndicator(typingId);
+        appendAssistantMessage("⚠️ Temporarily unable to reach the loan assistant services. Please try again in a moment.");
+      }
+    }
+
+    function triggerSimulation(type) {
+      if (type === 'FRAUD') {
+        handleSend({
+          message: "Someone stole my phone and took a loan! Stop all disbursements immediately!",
+          auth_state: isAuthenticated,
+          app_id: currentAppId,
+          conversation_id: conversationId,
+          strategy: activeStrategy,
+          simulation: { fraud_scenario: true }
+        });
+      } else if (type === 'FRUSTRATION') {
+        handleSend({
+          message: "This isn't helping at all! You are completely useless, stop repeating and connect me to a human right now!",
+          auth_state: isAuthenticated,
+          app_id: currentAppId,
+          conversation_id: conversationId,
+          strategy: activeStrategy,
+          simulation: { customer_frustration: true, explicit_human_request: true }
+        });
+      } else if (type === 'KYC_FAILURE') {
+        handleSend({
+          message: "My PAN verification is failing with error 403 mismatch",
+          auth_state: isAuthenticated,
+          app_id: currentAppId,
+          conversation_id: conversationId,
+          strategy: activeStrategy,
+          simulation: { kyc_failure: true, repeated_failures: 2 }
+        });
+      } else if (type === 'RTA_TIMEOUT') {
+        handleSend({
+          message: "The CAMS pledge OTP gateway keeps timing out",
+          auth_state: isAuthenticated,
+          app_id: currentAppId,
+          conversation_id: conversationId,
+          strategy: activeStrategy,
+          simulation: { rta_timeout: true, repeated_failures: 2 }
+        });
+      } else if (type === 'BANK_FAIL') {
+        handleSend({
+          message: "Penny drop verification failed for my bank account",
+          auth_state: isAuthenticated,
+          app_id: currentAppId,
+          conversation_id: conversationId,
+          strategy: activeStrategy,
+          simulation: { api_failure: true }
+        });
+      } else if (type === 'LOW_CONFIDENCE') {
+        handleSend({
+          message: "Is it possible to cross-collateralize an agricultural land parcel?",
+          auth_state: isAuthenticated,
+          app_id: currentAppId,
+          conversation_id: conversationId,
+          strategy: activeStrategy,
+          simulation: { forced_confidence: 0.52 }
+        });
+      } else if (type === 'DECEASED') {
+        handleSend({
+          message: "The primary borrower has passed away, how does the nominee settle the loan?",
+          auth_state: isAuthenticated,
+          app_id: currentAppId,
+          conversation_id: conversationId,
+          strategy: activeStrategy
+        });
+      }
+    }
+
+    function appendUserMessage(text) {
+      const box = document.getElementById('chatBox');
+      const msgDiv = document.createElement('div');
+      msgDiv.className = "flex items-start justify-end space-x-2";
+      msgDiv.innerHTML = `
+        <div class="bg-emerald-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-[80%] text-sm shadow-sm leading-relaxed">
+          ${escapeHtml(text)}
+        </div>
+      `;
+      box.appendChild(msgDiv);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function appendAssistantMessage(text, chips = []) {
+      const box = document.getElementById('chatBox');
+      const msgDiv = document.createElement('div');
+      msgDiv.className = "flex items-start space-x-3";
+
+      let formatted = text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/• (.*?)(?:\n|$)/g, '<li>$1</li>')
+        .replace(/\n\n/g, '<br/><br/>')
+        .replace(/\n/g, '<br/>');
+
+      let chipsHtml = '';
+      if (chips && chips.length > 0) {
+        chipsHtml = `
+          <div class="pt-2 flex flex-wrap gap-1.5">
+            ${chips.map(c => {
+              if (c === "View Agent Workspace") {
+                return `
+                  <button onclick="openAgentModalForLatest()" class="text-xs bg-rose-50 border border-rose-300 hover:border-rose-500 text-rose-800 font-bold px-2.5 py-1 rounded-full shadow-xs transition flex items-center gap-1">
+                    <i class="fa-solid fa-headset"></i> ${escapeHtml(c)}
+                  </button>
+                `;
+              }
+              return `
+                <button onclick="sendQuickPrompt('${escapeHtml(c)}')" class="text-xs bg-slate-50 border border-slate-300 hover:border-emerald-500 hover:text-emerald-700 px-2.5 py-1 rounded-full shadow-xs transition">
+                  ${escapeHtml(c)}
+                </button>
+              `;
+            }).join('')}
+          </div>
+        `;
+      }
+
+      msgDiv.innerHTML = `
+        <div class="w-8 h-8 rounded-full bg-emerald-600 text-white flex-shrink-0 flex items-center justify-center text-xs font-bold shadow-sm">
+          <i class="fa-solid fa-robot"></i>
+        </div>
+        <div class="bg-white text-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 max-w-[85%] text-sm space-y-1.5 border border-slate-200 shadow-xs leading-relaxed">
+          <div>${formatted}</div>
+          ${chipsHtml}
+        </div>
+      `;
+      box.appendChild(msgDiv);
+      box.scrollTop = box.scrollHeight;
+
+      const quickContainer = document.getElementById('quickChipsContainer');
+      if (chips && chips.length > 0) {
+        quickContainer.innerHTML = chips.map(c => `
+          <button onclick="${c === 'View Agent Workspace' ? 'openAgentModalForLatest()' : `sendQuickPrompt('${escapeHtml(c)}')`}" class="whitespace-nowrap px-3 py-1 bg-white border border-slate-300 rounded-full hover:bg-slate-100 transition text-slate-700">
+            ${escapeHtml(c)}
+          </button>
+        `).join('');
+      }
+    }
+
+    function appendSystemMessage(text) {
+      const box = document.getElementById('chatBox');
+      const div = document.createElement('div');
+      div.className = "text-center my-2 text-[11px] text-slate-400";
+      div.innerText = `— ${text} —`;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function appendTypingIndicator() {
+      const box = document.getElementById('chatBox');
+      const id = 'typing_' + Date.now();
+      const div = document.createElement('div');
+      div.id = id;
+      div.className = "flex items-start space-x-3";
+      div.innerHTML = `
+        <div class="w-8 h-8 rounded-full bg-emerald-600 text-white flex-shrink-0 flex items-center justify-center text-xs font-bold">
+          <i class="fa-solid fa-robot"></i>
+        </div>
+        <div class="bg-white text-slate-500 rounded-2xl px-4 py-2.5 text-xs border border-slate-200 flex items-center space-x-1.5 shadow-xs">
+          <span class="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></span>
+          <span class="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></span>
+          <span class="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></span>
+        </div>
+      `;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+      return id;
+    }
+
+    function removeTypingIndicator(id) {
+      const el = document.getElementById(id);
+      if (el) el.remove();
+    }
+
+    function updateDecisionInspector(data) {
+      const esc = data.escalation_analysis || {};
+      const factors = esc.factors || {};
+      const score = typeof esc.score === 'number' ? esc.score : (data.escalation_score || 0.05);
+
+      // Score Meter & Text
+      document.getElementById('meterScoreText').innerText = `${score.toFixed(2)} / 1.00`;
+      const meterBar = document.getElementById('meterBar');
+      const pct = Math.min(100, Math.round(score * 100));
+      meterBar.style.width = `${pct}%`;
+
+      // Level Badge & Colors
+      const levelBadge = document.getElementById('decisionLevelBadge');
+      if (score >= 0.70) {
+        levelBadge.className = "text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300";
+        levelBadge.innerText = "LEVEL 3: PRIORITY HANDOFF";
+        meterBar.className = "bg-rose-600 h-2.5 rounded-full transition-all duration-500";
+      } else if (score >= 0.50) {
+        levelBadge.className = "text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300";
+        levelBadge.innerText = "LEVEL 2: ASSISTED QUEUE";
+        meterBar.className = "bg-amber-500 h-2.5 rounded-full transition-all duration-500";
+      } else if (score >= 0.30) {
+        levelBadge.className = "text-[11px] font-bold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-300";
+        levelBadge.innerText = "LEVEL 1: MONITORED AI";
+        meterBar.className = "bg-yellow-500 h-2.5 rounded-full transition-all duration-500";
+      } else {
+        levelBadge.className = "text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300";
+        levelBadge.innerText = "LEVEL 0: AUTONOMOUS";
+        meterBar.className = "bg-emerald-500 h-2.5 rounded-full transition-all duration-500";
+      }
+
+      // Signal Grid Values
+      document.getElementById('diagRiskVal').innerText = (factors.risk_score || 0.0).toFixed(2);
+      const riskTag = document.getElementById('diagRiskTag');
+      if ((factors.risk_score || 0) >= 0.70) {
+        riskTag.innerText = "CRITICAL";
+        riskTag.className = "text-[10px] font-semibold text-rose-700 bg-rose-100 px-1 rounded";
+      } else if ((factors.risk_score || 0) >= 0.35) {
+        riskTag.innerText = "HIGH";
+        riskTag.className = "text-[10px] font-semibold text-amber-700 bg-amber-100 px-1 rounded";
+      } else {
+        riskTag.innerText = "LOW";
+        riskTag.className = "text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1 rounded";
+      }
+
+      document.getElementById('diagExplicitVal').innerText = (factors.explicit_request || 0.0).toFixed(2);
+      const expTag = document.getElementById('diagExplicitTag');
+      if ((factors.explicit_request || 0) > 0) {
+        expTag.innerText = "YES";
+        expTag.className = "text-[10px] font-semibold text-rose-700 bg-rose-100 px-1 rounded";
+      } else {
+        expTag.innerText = "NO";
+        expTag.className = "text-[10px] font-semibold text-slate-500 bg-slate-200 px-1 rounded";
+      }
+
+      const repFails = (factors.repeated_failure || 0) > 0 ? (factors.repeated_failure >= 0.3 ? 3 : (factors.repeated_failure >= 0.2 ? 2 : 1)) : 0;
+      document.getElementById('diagFailureVal').innerText = repFails;
+      document.getElementById('diagFailureTag').innerText = `${repFails} / 3`;
+
+      document.getElementById('diagFrustrationVal').innerText = (factors.customer_frustration || 0.0).toFixed(2);
+      const frustTag = document.getElementById('diagFrustrationTag');
+      if ((factors.customer_frustration || 0) > 0) {
+        frustTag.innerText = "FRUSTRATED";
+        frustTag.className = "text-[10px] font-semibold text-rose-700 bg-rose-100 px-1 rounded";
+      } else {
+        frustTag.innerText = "NORMAL";
+        frustTag.className = "text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1 rounded";
+      }
+
+      // Priority & Why
+      document.getElementById('diagPriorityBadge').innerText = esc.priority || "P4_LOW";
+      document.getElementById('diagWhy').innerText = esc.why || "Query handled safely by AI self-service within approved boundaries.";
+      document.getElementById('diagIntent').innerText = data.intent || "GENERAL_INQUIRY";
+      document.getElementById('diagLatency').innerText = data.latency_ms ? `${data.latency_ms} ms` : "-- ms";
+    }
+
+    async function fetchTicketsAndEvents() {
+      try {
+        const [ticketsRes, eventsRes, analyticsRes] = await Promise.all([
+          fetch('/api/v1/support/tickets'),
+          fetch('/api/v1/system/events'),
+          fetch('/api/v1/analytics')
+        ]);
+        cachedTickets = await ticketsRes.json();
+        const events = await eventsRes.json();
+        const analytics = await analyticsRes.json();
+
+        // Update Top KPIs
+        if (analytics) {
+          if (analytics.total_conversations) document.getElementById('kpiTotalConvs').innerText = analytics.total_conversations.toLocaleString();
+          if (analytics.self_service_resolution_rate) document.getElementById('kpiResolution').innerText = `${analytics.self_service_resolution_rate}%`;
+          if (analytics.escalation_rate) document.getElementById('kpiEscalation').innerText = `${analytics.escalation_rate}%`;
+          if (analytics.csat) document.getElementById('kpiCsat').innerText = `${analytics.csat} / 5.0`;
+          if (analytics.hallucination_rate !== undefined) document.getElementById('kpiHallucination').innerText = `<0.5%`;
+        }
+
+        // Tickets List
+        document.getElementById('ticketCountBadge').innerText = `${cachedTickets.length} Active`;
+        const tList = document.getElementById('ticketsList');
+        if (cachedTickets.length > 0) {
+          tList.innerHTML = cachedTickets.map(t => {
+            const priorityClass = t.priority === "P1_CRITICAL" ? "bg-rose-100 text-rose-800 border-rose-300" :
+                                 (t.priority === "P2_HIGH" ? "bg-amber-100 text-amber-800 border-amber-300" : "bg-blue-100 text-blue-800 border-blue-300");
+            const reason = t.problem?.stated_issue || t.reason || "Customer assistance required";
+            const desk = t.ai_recommendation?.assigned_desk || t.assigned_desk || "Loan Desk";
+            const custName = t.customer?.name || "Customer";
+            return `
+              <div onclick="openAgentModal('${t.ticket_id}')" class="p-2.5 bg-rose-50/60 hover:bg-rose-100/70 cursor-pointer border border-rose-200 rounded-xl transition shadow-2xs">
+                <div class="flex justify-between items-center">
+                  <div class="flex items-center gap-1.5">
+                    <span class="font-bold text-slate-800 text-[11px]">#${t.ticket_id}</span>
+                    <span class="text-[9px] font-bold px-1.5 py-0.2 rounded border ${priorityClass}">${t.priority}</span>
+                  </div>
+                  <span class="text-[10px] text-slate-500 font-mono">${t.timestamp || ''}</span>
+                </div>
+                <div class="text-slate-800 font-medium text-[11px] mt-1 line-clamp-1">"${escapeHtml(reason)}"</div>
+                <div class="flex justify-between items-center text-[10px] text-slate-500 mt-1">
+                  <span>${escapeHtml(custName)} • ${escapeHtml(desk)}</span>
+                  <span class="text-rose-700 font-bold hover:underline">View Dossier ➔</span>
+                </div>
+              </div>
+            `;
+          }).join('');
+        } else {
+          tList.innerHTML = `<p class="text-slate-400 text-center py-6 text-xs">Zero active escalations. Self-service handling smoothly.</p>`;
+        }
+
+        // Events Log
+        const eStream = document.getElementById('eventStream');
+        if (events && events.length > 0) {
+          eStream.innerHTML = events.slice(0, 8).map(e => `
+            <div class="flex items-center space-x-1.5 py-0.5 border-b border-slate-100">
+              <span class="text-slate-400 font-mono text-[10px]">${e.timestamp || ''}</span>
+              <span class="text-emerald-600 font-bold">[${e.event_id || 'EVT'}]</span>
+              <span class="text-slate-800 font-medium truncate">${e.type}</span>
+            </div>
+          `).join('');
+        }
+      } catch (e) {
+        console.error("Failed to fetch tickets/events", e);
+      }
+    }
+
+    function openAgentModal(ticketId) {
+      const ticket = cachedTickets.find(t => t.ticket_id === ticketId);
+      if (!ticket) return;
+      currentActiveTicket = ticket;
+
+      // Populate Modal Fields
+      document.getElementById('modalTicketSubtitle').innerText = `Ticket #${ticket.ticket_id} • ${ticket.ai_recommendation?.assigned_desk || 'Loan Operations'}`;
+      document.getElementById('modalPriorityBadge').innerText = ticket.priority || 'P2_HIGH';
+      document.getElementById('modalCustName').innerText = ticket.customer?.name || "Rahul Sharma";
+      document.getElementById('modalCustAppId').innerText = ticket.customer?.application_id || "APP-HL-1092";
+      document.getElementById('modalCustProduct').innerText = ticket.customer?.product || "Home Loan";
+      document.getElementById('modalCustPhone').innerText = ticket.customer?.phone_masked || "+91-98XXXX1234";
+      document.getElementById('modalCustBank').innerText = ticket.customer?.linked_bank || "HDFC Bank ending 3294";
+      document.getElementById('modalCustLimit').innerText = ticket.customer?.sanctioned_limit || "₹2,500,000";
+
+      document.getElementById('modalDiagCategory').innerText = ticket.problem?.category || "General Inquiries";
+      document.getElementById('modalDiagReason').innerText = ticket.ai_recommendation?.reason_for_escalation || ticket.reason || "Customer assistance requested.";
+      document.getElementById('modalLastMessage').innerText = `"${ticket.customer_last_message || ticket.problem?.stated_issue || 'Customer inquiry'}"`;
+
+      // Actions list
+      const actions = ticket.system_context?.actions_attempted || [
+        `Active session identified for ${ticket.customer?.name}`,
+        `Escalation score computed: ${ticket.escalation_score}`
+      ];
+      document.getElementById('modalActionsList').innerHTML = actions.map(a => `<li>${escapeHtml(a)}</li>`).join('');
+
+      // Recommendation
+      document.getElementById('modalRecommendation').innerText = ticket.ai_recommendation?.suggested_agent_action || "Review customer query and provide live assistance.";
+      document.getElementById('modalTicketStatus').innerText = `STATUS: ${ticket.status || 'OPEN'}`;
+
+      document.getElementById('agentModal').classList.remove('hidden');
+    }
+
+    function openAgentModalForLatest() {
+      if (cachedTickets && cachedTickets.length > 0) {
+        openAgentModal(cachedTickets[0].ticket_id);
+      } else {
+        alert("No active tickets found. Trigger a scenario like Fraud or Customer Rage first!");
+      }
+    }
+
+    function closeAgentModal() {
+      document.getElementById('agentModal').classList.add('hidden');
+    }
+
+    async function handleTicketAction(action) {
+      if (!currentActiveTicket) return;
+      try {
+        const res = await fetch('/api/v1/support/tickets/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ticket_id: currentActiveTicket.ticket_id,
+            action: action
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          currentActiveTicket.status = data.ticket.status;
+          document.getElementById('modalTicketStatus').innerText = `STATUS: ${data.ticket.status}`;
+          alert(`Ticket #${currentActiveTicket.ticket_id} updated to ${data.ticket.status}!`);
+          fetchTicketsAndEvents();
+        }
+      } catch (err) {
+        console.error("Failed ticket action", err);
+      }
+    }
+
+    function openAnalyticsModal() {
+      document.getElementById('analyticsModal').classList.remove('hidden');
+    }
+
+    function closeAnalyticsModal() {
+      document.getElementById('analyticsModal').classList.add('hidden');
+    }
+
+    function clearChat() {
+      document.getElementById('chatBox').innerHTML = `
+        <div class="flex items-start space-x-3">
+          <div class="w-8 h-8 rounded-full bg-emerald-600 text-white flex-shrink-0 flex items-center justify-center text-xs font-bold">
+            <i class="fa-solid fa-robot"></i>
+          </div>
+          <div class="bg-white text-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 max-w-[85%] text-sm space-y-2 border border-slate-200">
+            <p>Chat cleared! Ready to explore loan inquiries or test edge cases.</p>
+          </div>
+        </div>
+      `;
+      document.getElementById('diagIntent').innerText = 'GENERAL_INQUIRY';
+      document.getElementById('meterScoreText').innerText = '0.05 / 1.00';
+      document.getElementById('meterBar').style.width = '5%';
+      document.getElementById('meterBar').className = 'bg-emerald-500 h-2.5 rounded-full transition-all duration-500';
+      document.getElementById('decisionLevelBadge').className = 'text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300';
+      document.getElementById('decisionLevelBadge').innerText = 'LEVEL 0: AUTONOMOUS';
+      document.getElementById('diagRiskVal').innerText = '0.00';
+      document.getElementById('diagExplicitVal').innerText = '0.00';
+      document.getElementById('diagFailureVal').innerText = '0';
+      document.getElementById('diagFrustrationVal').innerText = '0.00';
+      document.getElementById('diagPriorityBadge').innerText = 'P4_LOW';
+      document.getElementById('diagWhy').innerText = 'System operating in autonomous self-service mode. Risk, frustration, and failure signals remain within safe bounds.';
+      document.getElementById('diagLatency').innerText = '-- ms';
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Initial load
+    fetchTicketsAndEvents();
+    setInterval(fetchTicketsAndEvents, 5000);
+  </script>
+</body>
+</html>

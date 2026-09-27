@@ -1,0 +1,93 @@
+[
+  {
+    "chunk_id": "KB-HL-001",
+    "category": "HOME_LOAN_DOCUMENTS",
+    "title": "Document Requirements for Home Loan",
+    "content": "For Salaried Applicants: 1. Identity & Address Proof (PAN, Aadhaar, Passport, or Voter ID). 2. Income Proof: Last 3-6 months salary slips, latest Form 16, and last 6 months bank statement showing salary credits. For Self-Employed Applicants: 1. Identity & Address Proof. 2. Business Proof: GST registration, MSME certificate, or shop establishment license. 3. Income Proof: Last 2-3 years Income Tax Returns (ITR) with computation of income, audited balance sheet, Profit & Loss statement certified by a CA, and last 12 months active current/savings bank statements. Property Documents: Copy of Title Deeds, Agreement to Sell, Approved Building Plan, and NOC from Builder/Society.",
+    "keywords": ["documents", "salaried", "self employed", "itr", "salary slips", "bank statement", "property documents"]
+  },
+  {
+    "chunk_id": "KB-HL-002",
+    "category": "HOME_LOAN_ELIGIBILITY",
+    "title": "Home Loan Eligibility Criteria",
+    "content": "Eligibility for Easy Home Finance depends on: 1. Age: 21 to 65 years. 2. Employment: Minimum 2 years work experience for salaried, or 3 years vintage in current business for self-employed. 3. Minimum Income: ₹25,000 per month net for salaried, or ₹3,00,000 annual taxable income for self-employed. 4. CIBIL Score: Ideally 700 or above for optimal interest rates, though applicants with lower scores or thin credit files can qualify under specialized assessment. Final approval depends on credit underwriting, property legal search, and technical valuation.",
+    "keywords": ["eligibility", "criteria", "cibil", "minimum income", "age limit", "qualification"]
+  },
+  {
+    "chunk_id": "KB-HL-003",
+    "category": "HOME_LOAN_STAGES",
+    "title": "Home Loan Journey Stages & Timelines",
+    "content": "The standard digital home loan process involves: 1. Digital Application & Lead Capture. 2. Instant KYC verification via Aadhaar/DigiLocker. 3. Document Submission & Financial Evaluation. 4. Property Legal & Technical Valuation (takes 2-4 business days). 5. Credit Sanction Letter issuance. 6. Loan Agreement Execution (e-Sign/Physical) & Nach/e-Mandate registration. 7. Disbursement into builder/seller account. Typical turnaround time (TAT) is 5 to 7 business days from complete document submission.",
+    "keywords": ["stages", "journey", "process", "tat", "timeline", "technical verification", "sanction letter", "disbursement"]
+  },
+  {
+    "chunk_id": "KB-LAMF-001",
+    "category": "LAMF_BASICS",
+    "title": "What is Loan Against Mutual Funds (LAMF) and How Does it Work?",
+    "content": "Loan Against Mutual Funds (LAMF) is an overdraft or term credit line where you pledge existing equity or debt mutual fund units as collateral with SEBI/RBI registered lenders (e.g. Bajaj Finserv, Tata Capital, IDFC First). You retain 100% ownership of your mutual funds: your units stay invested, SIPs continue uninterrupted, and you earn dividends and NAV appreciation. You only pay simple interest on the amount actually withdrawn for the days utilized.",
+    "keywords": ["what is lamf", "how it works", "retain ownership", "sip continue", "dividend", "pledge", "equity", "debt"]
+  },
+  {
+    "chunk_id": "KB-LAMF-002",
+    "category": "LAMF_ELIGIBILITY",
+    "title": "LAMF Minimum Portfolio Value & Eligibility",
+    "content": "To be eligible for LAMF: 1. Resident Indian aged 18 to 65. 2. Hold approved mutual fund folios registered with CAMS or KFintech with minimum portfolio value of ₹50,000 (minimum sanction limit starts at ₹25,000). 3. Only single-holder folios with matching PAN and Aadhaar can be pledged. Ineligible categories: Joint folios, minor accounts, HUF, corporate folios, and units under lock-in (such as ELSS with less than 3 years holding).",
+    "keywords": ["minimum portfolio", "eligibility", "joint account", "minor", "elss", "lock-in", "cams", "kfintech"]
+  },
+  {
+    "chunk_id": "KB-LAMF-003",
+    "category": "LAMF_LTV_AND_LIMITS",
+    "title": "Loan-to-Value (LTV) Ratios and Sanction Limits",
+    "content": "Under RBI prudential guidelines: Equity Mutual Funds have a maximum Loan-to-Value (LTV) of up to 50% of current Net Asset Value (NAV). Debt, Liquid, and Overnight funds have an LTV of up to 70% to 80%. Minimum loan limit is ₹25,000; maximum digital instant sanction limit is ₹1 Crore (up to ₹20 Lakhs in instant paperless mode without additional financial underwriting).",
+    "keywords": ["ltv ratio", "equity ltv", "debt ltv", "max loan amount", "sanction limit"]
+  },
+  {
+    "chunk_id": "KB-LAMF-004",
+    "category": "LAMF_CHARGES",
+    "title": "Interest Rates, APR, Processing Fees, and Charges",
+    "content": "1. Interest Rate: Starts from 10.49% to 14.0% p.a., calculated on a simple reducing balance daily basis on the withdrawn amount only. 2. Processing Fee: ₹999 to ₹2,000 + GST (deducted from initial drawdown). 3. Prepayment / Foreclosure Charges: ₹0 (Nil). You can repay partially or fully at any time with zero penalty. 4. Annual Maintenance Fee: As per KFS (₹999 to ₹1,179/yr where applicable). 5. AutoPay Bounce Charges: ₹500 to ₹1,200 per bounce plus 24% p.a. penal interest on overdue interest.",
+    "keywords": ["interest rate", "apr", "processing fee", "foreclosure penalty", "prepayment charge", "maintenance fee", "bounce"]
+  },
+  {
+    "chunk_id": "KB-LAMF-005",
+    "category": "LAMF_PLEDGE",
+    "title": "Lien Pledging via CAMS / KFintech and Unpledge Process",
+    "content": "Lien marking registers a temporary charge on your mutual fund units with the Registrar & Transfer Agent (RTA). An OTP is sent by CAMS or KFintech directly to the mobile number and email ID registered in your mutual fund folios. Pledging does NOT sell or redeem your units. Once your loan is repaid in full, initiating 'Unpledge' releases the lien within 24 to 48 business hours.",
+    "keywords": ["pledge process", "lien marking", "cams otp", "kfintech otp", "unpledge", "release units"]
+  },
+  {
+    "chunk_id": "KB-LAMF-006",
+    "category": "LAMF_MARGIN_CALL",
+    "title": "Market Crash, NAV Fluctuations, and Margin Calls",
+    "content": "If mutual fund NAVs drop and the outstanding loan exceeds the permitted LTV threshold (Margin Threshold > 80% LTV), a Margin Call is triggered. You receive immediate SMS, WhatsApp, and email alerts. You are given a 7 to 10 day cure period to either: (a) Repay part of the principal, or (b) Pledge additional mutual fund units. Only if you default on the margin call or miss multiple payments will the lender liquidate the minimum units necessary to settle the overdue balance.",
+    "keywords": ["market crash", "nav drop", "margin call", "liquidation", "default", "pledge invocation"]
+  },
+  {
+    "chunk_id": "KB-LAMF-007",
+    "category": "LAMF_AUTOPAY",
+    "title": "AutoPay Mandate Setup & Repayment",
+    "content": "An active e-Mandate (via NetBanking, Debit Card, or UPI AutoPay) is required prior to loan agreement signing. The mandate limit (e.g. ₹2,00,000) is a maximum security cap to allow future drawdowns without re-registration, NOT the amount debited. You are debited strictly for the actual monthly interest on what you withdraw. Regulated under RBI NPCI e-Mandate rules.",
+    "keywords": ["autopay", "mandate", "debit card", "netbanking", "due date", "npci"]
+  },
+  {
+    "chunk_id": "KB-LAMF-008",
+    "category": "LAMF_TAX_AND_CIBIL",
+    "title": "Tax Exemption & CIBIL Soft Pull",
+    "content": "1. CIBIL Impact: Checking your eligible credit limit uses a soft bureau inquiry with ZERO impact on your CIBIL score. 2. Tax Exemption: Pledging does not sell your units, so NO Capital Gains Tax (STCG or LTCG) is triggered. Interest paid on loans used for business purposes may also be tax-deductible under Section 36(1)(iii) of the Income Tax Act.",
+    "keywords": ["cibil", "soft pull", "capital gains tax", "stcg", "ltcg", "tax exemption"]
+  },
+  {
+    "chunk_id": "KB-LAMF-009",
+    "category": "KFS_AND_AGREEMENT",
+    "title": "Key Fact Statement (KFS) and Loan Agreement Key Terms",
+    "content": "Key terms of the digital LAMF loan agreement and RBI Key Fact Statement (KFS): 1. Sanctioned Credit Line: An overdraft facility against pledged mutual funds. 2. Interest Rate: 10.5% p.a. calculated on a simple daily reducing balance on the amount actually withdrawn, NOT on the sanctioned limit. If you withdraw ₹0, you pay ₹0. 3. Foreclosure Charges: Nil (₹0). You can repay anytime with zero penalty. 4. Disbursal Destination: Funds are disbursed directly to your verified bank account via IMPS/NEFT within 2 hours of e-sign. 5. Collateral: Your mutual fund units remain pledged with CAMS/KFintech as security. You stay 100% owner, earn full dividends, and benefit from market growth. 6. AutoPay Mandate: Automatically collects monthly interest on due date. 7. Cure Period: A 7-10 day grace window is provided if NAV drops significantly.",
+    "keywords": ["agreement", "kfs", "key points", "terms", "contract", "plain english", "foreclosure", "interest rate", "collateral", "disbursal"]
+  },
+  {
+    "chunk_id": "KB-LAMF-010",
+    "category": "LOAN_SETTLEMENT_DECEASED",
+    "title": "Loan Settlement, Borrower Demise & Nominee Transmission Policy",
+    "content": "In the unfortunate event of the borrower's demise while a loan against mutual funds is active: 1. The registered nominee or legal heir has the right to settle the outstanding loan balance or transmit the units after clearing obligations. 2. Units remain pledged with CAMS/KFintech until outstanding dues are settled. 3. If loan insurance coverage exists, the insurer settles the balance. 4. Complex contractual inheritance, death claims, or succession issues cannot be handled automatically and require dedicated handling by our Senior Loan Settlement Specialist.",
+    "keywords": ["die", "demise", "death", "nominee", "transmission", "deceased", "inheritance", "legal heir", "settlement"]
+  }
+]

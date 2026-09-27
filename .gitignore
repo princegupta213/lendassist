@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.vercel/
+.DS_Store
+.env*
+node_modules/

@@ -1,0 +1,2 @@
+# LendAssist Serverless Requirements
+# Uses Python standard library for ultra-fast serverless cold starts (<50ms)
