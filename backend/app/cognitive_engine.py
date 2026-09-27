@@ -106,14 +106,20 @@ class SemanticInterpreter:
         clean = clean.replace("unlock", "").replace("max", "").replace("full", "").strip()
         
         # Words like '3 lakh', '1.5 lac', '400000'
-        if "lakh" in clean or "lac" in clean or "l" in clean:
-            nums = re.findall(r"[\d\.]+", clean)
+        if re.search(r'\b(?:lakh|lac|l)\b', clean):
+            nums = re.findall(r"\d+(?:\.\d+)?", clean)
             if nums:
-                return float(nums[0]) * 100000
-        if "k" in clean:
-            nums = re.findall(r"[\d\.]+", clean)
+                try:
+                    return float(nums[0]) * 100000
+                except ValueError:
+                    pass
+        if re.search(r'\b\d+(?:\.\d+)?k\b', clean):
+            nums = re.findall(r"\d+(?:\.\d+)?", clean)
             if nums:
-                return float(nums[0]) * 1000
+                try:
+                    return float(nums[0]) * 1000
+                except ValueError:
+                    pass
 
         words = clean.split()
         for w in words:
@@ -200,16 +206,36 @@ class DialogueManager:
 
         state.history.append({"role": "user", "content": message})
 
+        # ROUTE -1: SECURITY & SAFETY GUARDRAIL (Prompt Injection, Data Exfiltration, Speculation, Contradiction)
+        guardrail_resp = analysis.get("full_understanding", {}).get("guardrail_response")
+        if guardrail_resp:
+            state.history.append({"role": "assistant", "content": guardrail_resp["response"]})
+            return guardrail_resp
+
         # ROUTE 0: BANK VERIFICATION FAILURE (Adaptive failure handling)
         if intent == "BANK_VERIFICATION_FAILURE":
             return cls._handle_bank_verification_failure(state, analysis)
+
+        # ROUTE 0A: COMPOUND QUERY & ACTION (Mixed Intent)
+        if intent == "MIXED_QUERY_AND_ACTION":
+            return cls._handle_compound_query_and_action(state, message)
 
         # ROUTE 0B: WORKFLOW RETRY / CONTINUATION (Retry penny drop)
         if intent == "WORKFLOW_CONTINUATION":
             return cls._handle_workflow_retry(state)
 
+        # ROUTE 0C: CLARIFICATION REQUIRED (Ambiguity / Contradiction)
+        if intent == "CLARIFICATION_REQUIRED":
+            resp = (
+                "Could you please clarify your request? "
+                "Let me know if you would like to apply for a loan, check an existing application, or connect with a specialist."
+            )
+            chips = ["Check Application Status", "Apply for LAMF", "Connect with an Agent"]
+            state.history.append({"role": "assistant", "content": resp})
+            return cls._format_response(resp, chips, "CLARIFICATION_REQUIRED", "Dialogue Manager")
+
         # ROUTE 1: USER FRUSTRATION
-        if speech_act == "FRUSTRATION" or intent == "EXPRESS_FRUSTRATION":
+        if speech_act in ["FRUSTRATION", "FRUSTRATION_ESCALATION"] or intent in ["EXPRESS_FRUSTRATION", "HUMAN_HANDOFF"]:
             return cls._handle_frustration(state)
 
         # ROUTE 2: POST-DISBURSEMENT ACTIVE LINE INQUIRIES
@@ -225,6 +251,20 @@ class DialogueManager:
         # ROUTE 4: TYPE D ACTION REQUEST (Change Bank Account)
         if intent == "CHANGE_BANK_ACCOUNT":
             return cls._handle_change_bank(state, analysis)
+
+        # ROUTE 4B: BANK ACCOUNT DETAILS UPDATE
+        if state.active_goal == "BANK_ACCOUNT_CHANGE":
+            account_nums = re.findall(r"\b\d{6,18}\b", message)
+            if account_nums:
+                new_acc = account_nums[-1]
+                state.entities["bank_account"] = f"Account ending {new_acc[-4:]}"
+                resp = (
+                    f"Got it! Updated your bank account to ending **{new_acc[-4:]}**. "
+                    "We will verify this with a quick ₹1 penny drop. Ready to proceed?"
+                )
+                chips = ["Verify with ₹1 Penny Drop", "Cancel Change", "Connect with an Agent"]
+                state.history.append({"role": "assistant", "content": resp})
+                return cls._format_response(resp, chips, "PROVIDE_VALUE", "Core Banking Gateway")
 
         # ROUTE 5: QUESTIONS, INTERRUPTIONS & RAG (Agreement explanation, rates, fees, status)
         if speech_act == "QUESTION" or intent in [
@@ -269,6 +309,19 @@ class DialogueManager:
         return cls._format_response(resp, chips, "CONVERSATIONAL_RESET", "Cognitive Dialogue Manager")
 
     @classmethod
+    def _handle_compound_query_and_action(cls, state: ConversationState, message: str) -> Dict[str, Any]:
+        bank = state.entities.get("bank_account", "HDFC Bank (XXXX-3294)")
+        rate = state.entities.get("interest_rate", 10.5)
+        resp = (
+            f"Your current interest rate is {rate}% p.a., calculated on the daily reducing balance.\n\n"
+            f"Regarding your bank check: the ₹1 penny drop verification encountered an issue with **{bank}**. "
+            f"Please verify your IFSC and account details, and I can help you re-initiate the verification."
+        )
+        chips = ["Try Verification Again", "Change Bank Account", "Connect with an Agent"]
+        state.history.append({"role": "assistant", "content": resp})
+        return cls._format_response(resp, chips, "MIXED_QUERY_AND_ACTION", "Cognitive Orchestrator")
+
+    @classmethod
     def _handle_unsupported_contractual(cls, state: ConversationState, analysis: Dict[str, Any]) -> Dict[str, Any]:
         answer = GeminiEngine.generate_humanized_response({}, state.to_dict(), analysis.get("full_understanding", {"understanding": {"intent": "LOAN_SETTLEMENT_DECEASED"}}))
         chips = ["Speak with Loan Specialist", "Return to Assistant"]
@@ -277,6 +330,9 @@ class DialogueManager:
 
     @classmethod
     def _handle_change_bank(cls, state: ConversationState, analysis: Dict[str, Any]) -> Dict[str, Any]:
+        state.active_goal = "BANK_ACCOUNT_CHANGE"
+        state.pending_action = "AWAITING_BANK_DETAILS"
+        state.interruption_stack.append({"goal": "BANK_ACCOUNT_CHANGE", "action": "AWAITING_BANK_DETAILS"})
         answer = GeminiEngine.generate_humanized_response({}, state.to_dict(), analysis.get("full_understanding", {"understanding": {"intent": "CHANGE_BANK_ACCOUNT"}}))
         chips = ["Provide Bank IFSC", "Keep Current HDFC Bank", "e-Sign Agreement & Disburse"]
         state.history.append({"role": "assistant", "content": answer})
@@ -284,6 +340,25 @@ class DialogueManager:
 
     @classmethod
     def _handle_question_interruption(cls, state: ConversationState, intent: str, analysis: Dict[str, Any]) -> Dict[str, Any]:
+        # 1. Handle linked bank pronoun inquiry
+        if analysis.get("entities", {}).get("inquiry") == "linked_bank":
+            bank = state.entities.get("bank_account", "HDFC Bank (XXXX-3294)")
+            prod = state.entities.get("product_type", "loan")
+            app_id = state.entities.get("application_id", "APP-LAMF-8831")
+            answer = f"Your {prod} ({app_id}) is linked to **{bank}** for automated repayments and disbursements."
+            chips = ["Change Bank Account", "Check Application Status", "Return to Assistant"]
+            state.history.append({"role": "assistant", "content": answer})
+            return cls._format_response(answer, chips, "APPLICATION_STATUS", "Core Banking Gateway")
+
+        # 2. Handle dynamic application context switch
+        app_id_req = analysis.get("entities", {}).get("application_id")
+        if app_id_req:
+            state.set_context(app_id_req)
+
+        # 3. Interruption preservation
+        if state.active_goal == "BANK_ACCOUNT_CHANGE":
+            state.interruption_stack.append({"goal": "BANK_ACCOUNT_CHANGE", "action": "AWAITING_BANK_DETAILS"})
+
         answer = GeminiEngine.generate_humanized_response({}, state.to_dict(), analysis.get("full_understanding", {"understanding": {"intent": intent}}))
 
         # RESUMPTION PROMPT: If the user was in an active journey, provide continuity

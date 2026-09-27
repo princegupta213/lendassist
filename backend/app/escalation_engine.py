@@ -71,7 +71,9 @@ class EscalationDecisionSystem:
     FRUSTRATION_PATTERNS = [
         r'\b(?:this isn\'t helping|not helping|useless|stupid bot|terrible service)\b',
         r'\b(?:already told you|stop repeating|i told you before|waste of time)\b',
-        r'\b(?:fed up|ridiculous|worst experience|speak to a real person)\b'
+        r'\b(?:fed up|ridiculous|worst experience|speak to a real person)\b',
+        r'\b(?:third time|3rd time|trying for 20 minutes|keeps? failing|why the hell|not understanding)\b',
+        r'\b(?:nothing is working|forget it|baar baar)\b'
     ]
 
     HIGH_RISK_INTENTS = {
@@ -113,10 +115,15 @@ class EscalationDecisionSystem:
         elif sim.get("fraud_scenario"):
             factors.risk_score = 0.80
 
-        # 2. Evaluate Explicit Request (0.0 or 0.85)
+        # 2. Evaluate Explicit Request (0.0 or 0.85) - Supports Indirect Requests & Hinglish
         human_patterns = [
-            r'\b(?:connect|talk|speak)\s+(?:me\s+)?(?:to\s+|with\s+)?(?:an?\s+)?(?:agent|human|person|executive|representative|specialist|someone|somebody|customer\s+care|customer\s+support)\b',
-            r'\b(?:i\s+want\s+(?:a\s+)?human|i\s+want\s+customer\s+support|let\s+me\s+speak|call\s+support|human\s+agent|real\s+person|customer\s+care|support\s+person)\b'
+            r'\b(?:connect|talk|speak)\s+(?:me\s+)?(?:to\s+|with\s+)?(?:an?\s+)?(?:agent|human|person|executive|representative|specialist|someone|somebody|customer\s+care|customer\s+support|your\s+team)\b',
+            r'\b(?:i\s+want\s+(?:a\s+)?human|i\s+want\s+(?:an?\s+)?actual\s+person|i\s+want\s+customer\s+support|let\s+me\s+speak|call\s+support|human\s+agent|real\s+person|customer\s+care|support\s+person)\b',
+            r'\b(?:don\'t|dont)\s+want\s+to\s+deal\s+with\s+a\s+bot\b',
+            r'\b(?:can|could)\s+someone\s+help\s+me\s+with\s+this\b',
+            r'\b(?:is\s+there\s+a\s+real\s+person|put\s+me\s+through\s+to\s+support|need\s+to\s+speak\s+with\s+somebody)\b',
+            r'\b(?:get\s+an\s+executive\s+on\s+this|rather\s+talk\s+to\s+a\s+human|let\s+me\s+talk\s+to\s+your\s+team)\b',
+            r'\b(?:someone\s+from\s+support\s+call\s+me|connect\s+me\s+to\s+someone|agent\s+se\s+baat\s+kara\s+do)\b'
         ]
         is_explicit = (
             intent in ["HUMAN_HANDOFF", "TALK_TO_AGENT", "HUMAN_AGENT_REQUEST"] or
@@ -125,17 +132,25 @@ class EscalationDecisionSystem:
             any(kw in msg_lower for kw in [
                 "connect with an agent", "connect with agent", "connect me with an agent",
                 "speak to agent", "talk to human", "connect to agent", "representative",
-                "talk to someone", "i want a human", "call support", "customer care", "customer support"
+                "talk to someone", "i want a human", "call support", "customer care", "customer support",
+                "put me through to support", "i'd rather talk to a human", "agent se baat kara do",
+                "i want an actual person", "enough, connect me to someone", "let me talk to your team"
             ])
         )
-        if is_explicit:
+        # Ambiguity guard: "can you help me?" is directed at the bot, not a human escalation request
+        if is_explicit and not re.search(r'\bcan\s+you\s+help\s+me\b', msg_lower):
+            factors.explicit_request = 0.85
+        elif is_explicit and re.search(r'\bcan\s+someone\s+help\b', msg_lower):
             factors.explicit_request = 0.85
 
         # 3. Evaluate Repeated Failures (0.0 to 0.30)
         failure_count = context.get("failed_attempts", 0)
         if sim.get("repeated_failures"):
             failure_count = max(failure_count, sim.get("repeated_failures"))
-        if any(k in msg_lower for k in ["failed again", "tried this three times", "tried three times"]):
+        if any(k in msg_lower for k in [
+            "failed again", "tried this three times", "tried three times", "third time",
+            "given you this information twice", "keeps failing", "baar baar fail"
+        ]):
             failure_count = max(failure_count, 2)
         if failure_count >= 3:
             factors.repeated_failure = 0.30
@@ -157,16 +172,29 @@ class EscalationDecisionSystem:
             factors.customer_frustration = 0.25
 
         # 6. Evaluate Workflow / API Failure (0.0 to 0.35)
+        bank_fail_phrases = [
+            "penny drop verification failed", "penny drop failed", "my penny drop failed",
+            "bank verification isn't working", "account verification failed", "the bank check failed",
+            "my ifsc verification didn't work", "account validation failed", "verification isn't going through",
+            "my bank thing didn't work", "the verification just keeps failing", "why isn't my account getting verified",
+            "bank check failed again", "penny drop isn't happening", "it said verification unsuccessful",
+            "my account verification got rejected", "the ₹1 verification didn't go through",
+            "the 1 rupee verification didn't go through", "that small amount verification failed",
+            "bank validation is stuck", "it's not accepting my bank details",
+            "everything is correct but it still says failed", "penny drop fail", "penny drp failed",
+            "my bank verfication faild", "bank accnt not verifing", "why pennydrop not working",
+            "verification nahi ho raha", "bank verify nhi hua", "mera bank verify nahi ho rha",
+            "penny drop baar baar fail ho raha", "penny drop fail ho gaya", "bhai bank verification nahi ho rha",
+            "account number sahi hai fir bhi verify nahi hua", "ifsc correct hai but verification failed",
+            "baar baar fail ho raha hai"
+        ]
         if (
             intent in ["BANK_VERIFICATION_FAILURE", "KYC_FAILURE", "RTA_TIMEOUT"] or
             context.get("api_error") or
             sim.get("api_failure") or
             sim.get("kyc_failure") or
             sim.get("rta_timeout") or
-            any(k in msg_lower for k in [
-                "penny drop verification failed", "penny drop failed", "my penny drop failed",
-                "bank verification isn't working", "account verification failed", "the bank check failed"
-            ])
+            any(k in msg_lower for k in bank_fail_phrases)
         ):
             factors.workflow_failure = 0.35
 

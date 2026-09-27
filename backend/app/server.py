@@ -173,6 +173,13 @@ def process_chat_message(req_data):
         "session": session_id, "simulation": simulation, "strategy": strategy
     })
 
+    # 0. Security, Prompt Injection & Compliance Guardrail
+    security_check = DomainGuardrail.inspect_security_and_compliance(msg)
+    if security_check:
+        latency = round((time.time() - start_time) * 1000, 1)
+        security_check["latency_ms"] = latency
+        return security_check
+
     # 3. PRIORITY ROUTER: Hierarchy of System Intents
     preliminary_intent = "GENERAL_INQUIRY"
 
@@ -183,39 +190,72 @@ def process_chat_message(req_data):
     ]):
         preliminary_intent = "FRAUD_ESCALATION"
 
-    # Priority 2: Explicit Human Request (HUMAN_HANDOFF)
+    # Priority 2: Human Agent Request (Explicit, Indirect & Hinglish)
     elif (
         any(re.search(pat, msg_lower) for pat in [
-            r'\b(?:connect|talk|speak)\s+(?:me\s+)?(?:to\s+|with\s+)?(?:an?\s+)?(?:agent|human|person|executive|representative|specialist|someone|somebody|customer\s+care|customer\s+support)\b',
-            r'\b(?:i\s+want\s+(?:a\s+)?human|i\s+want\s+customer\s+support|let\s+me\s+speak|call\s+support|human\s+agent|real\s+person|customer\s+care|support\s+person)\b'
+            r'\b(?:connect|talk|speak)\s+(?:me\s+)?(?:to\s+|with\s+)?(?:an?\s+)?(?:agent|human|person|executive|representative|specialist|someone|somebody|customer\s+care|customer\s+support|your\s+team)\b',
+            r'\b(?:i\s+want\s+(?:a\s+)?human|i\s+want\s+(?:an?\s+)?actual\s+person|i\s+want\s+customer\s+support|let\s+me\s+speak|call\s+support|human\s+agent|real\s+person|customer\s+care|support\s+person)\b',
+            r'\b(?:don\'t|dont)\s+want\s+to\s+deal\s+with\s+a\s+bot\b',
+            r'\b(?:can|could)\s+someone\s+help\s+me\s+with\s+this\b',
+            r'\b(?:is\s+there\s+a\s+real\s+person|put\s+me\s+through\s+to\s+support|need\s+to\s+speak\s+with\s+somebody)\b',
+            r'\b(?:get\s+an\s+executive\s+on\s+this|rather\s+talk\s+to\s+a\s+human|let\s+me\s+talk\s+to\s+your\s+team)\b',
+            r'\b(?:someone\s+from\s+support\s+call\s+me|connect\s+me\s+to\s+someone|agent\s+se\s+baat\s+kara\s+do)\b'
         ]) or
         any(k in msg_lower for k in [
             "connect with an agent", "connect with agent", "connect me with an agent",
             "talk to a human", "talk to human", "talk to someone", "i want a human",
             "i want customer support", "let me speak to a representative", "call support",
             "connect with customer care", "speak to agent", "connect to executive",
-            "speak to a real person", "human agent", "customer care agent"
-        ])
-    ):
+            "speak to a real person", "human agent", "customer care agent",
+            "agent se baat kara do", "put me through to support", "i want an actual person",
+            "enough, connect me to someone"
+        ]) or msg_lower == "agent"
+    ) and not re.search(r'\bcan\s+you\s+help\s+me\b', msg_lower):
         preliminary_intent = "HUMAN_HANDOFF"
 
     # Priority 3: Workflow Failures (Bank Verification / Penny Drop / KYC / RTA)
-    elif any(k in msg_lower for k in [
-        "penny drop verification failed", "penny drop failed", "my penny drop failed",
-        "bank verification isn't working", "bank verification is not working",
-        "account verification failed", "the bank check failed", "my ifsc verification didn't work",
-        "account validation failed", "verification isn't going through"
-    ]):
+    elif (
+        any(k in msg_lower for k in [
+            "penny drop verification failed", "penny drop failed", "my penny drop failed",
+            "bank verification isn't working", "bank verification is not working",
+            "account verification failed", "the bank check failed", "my ifsc verification didn't work",
+            "account validation failed", "verification isn't going through",
+            "my bank thing didn't work", "the verification just keeps failing", "why isn't my account getting verified",
+            "bank check failed again", "penny drop isn't happening", "it said verification unsuccessful",
+            "my account verification got rejected", "the ₹1 verification didn't go through",
+            "the 1 rupee verification didn't go through", "that small amount verification failed",
+            "bank validation is stuck", "it's not accepting my bank details",
+            "everything is correct but it still says failed", "penny drop fail", "penny drp failed",
+            "my bank verfication faild", "bank accnt not verifing", "why pennydrop not working",
+            "verification nahi ho raha", "bank verify nhi hua", "mera bank verify nahi ho rha",
+            "penny drop baar baar fail ho raha", "penny drop fail ho gaya", "bhai bank verification nahi ho rha",
+            "account number sahi hai fir bhi verify nahi hua", "ifsc correct hai but verification failed",
+            "baar baar fail ho raha hai"
+        ]) or (
+            msg_lower in ["it failed", "failed", "it failed again", "verification failed"] and
+            (state.active_goal == "BANK_ACCOUNT_CHANGE" or state.workflow_state in ["BANK_VERIFICATION", "AUTOPAY_REVIEW"] or state.failed_attempts > 0)
+        )
+    ):
         preliminary_intent = "BANK_VERIFICATION_FAILURE"
 
     elif any(k in msg_lower for k in ["die", "death", "deceased", "nominee"]):
         preliminary_intent = "LOAN_SETTLEMENT_DECEASED"
 
+    # Priority 3B: Mixed Intent (e.g. Penny drop failed + What's my rate?)
+    elif ("penny drop" in msg_lower or "bank" in msg_lower) and any(k in msg_lower for k in ["interest rate", "how much i can borrow", "foreclosure"]):
+        preliminary_intent = "MIXED_QUERY_AND_ACTION"
+
     elif any(k in msg_lower for k in [
         "try the verification again", "try verification again", "retry verification",
-        "retry penny drop", "retry again", "try the bank check again"
-    ]):
+        "retry penny drop", "retry again", "try the bank check again",
+        "again", "try that again", "do it once more", "retry",
+        "isko dobara try kar sakte hain kya?", "isko dobara try kar sakte hain kya"
+    ]) and (state.failed_attempts > 0 or state.workflow_state in ["BANK_VERIFICATION", "AUTOPAY_REVIEW"] or state.active_goal == "BANK_ACCOUNT_CHANGE"):
         preliminary_intent = "WORKFLOW_CONTINUATION"
+
+    # Priority 3C: Repeated Frustration Accumulation
+    elif any(k in msg_lower for k in ["nothing is working", "why the hell does this keep failing", "tried this three times", "third time"]) and (state.failed_attempts >= 1 or state.conversation_state == "ESCALATING"):
+        preliminary_intent = "HUMAN_HANDOFF"
 
     # 4. Evaluate via Risk-Aware Escalation Decision System
     decision, factors, handoff_packet = EscalationDecisionSystem.evaluate(
@@ -228,6 +268,8 @@ def process_chat_message(req_data):
 
     # 5. If System Decides to ESCALATE:
     if decision == "ESCALATE" and handoff_packet:
+        state.failed_attempts += 1
+        state.conversation_state = "ESCALATING"
         ticket = handoff_packet.to_dict()
         SUPPORT_TICKETS.insert(0, ticket)
         if len(SUPPORT_TICKETS) > 50:

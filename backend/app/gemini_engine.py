@@ -160,6 +160,7 @@ class GeminiEngine:
         msg_lower = text.lower().strip()
         workflow_state = state_dict.get("workflow_state", "IDLE")
         active_goal = state_dict.get("active_goal")
+        context = state_dict
 
         # Entity Extraction
         entities = {}
@@ -172,6 +173,32 @@ class GeminiEngine:
         pan = cls._parse_pan(text)
         if pan:
             entities["pan"] = pan
+
+        # 0. SECURITY & COMPLIANCE GUARDRAIL (Prompt Injection, Data Exfiltration, Speculation, Contradictions)
+        from backend.app.domain_guard import DomainGuardrail
+        security_check = DomainGuardrail.inspect_security_and_compliance(text)
+        if security_check:
+            sec_intent = security_check["intent"]
+            return {
+                "understanding": {
+                    "intent": sec_intent,
+                    "speech_act": "SECURITY_GUARDRAIL",
+                    "entities": entities,
+                    "topic": "SYSTEM_SECURITY",
+                    "user_goal": "SECURITY_CHECK"
+                },
+                "decision": {
+                    "route": "POLICY_GUARDRAIL",
+                    "domain_type": "TYPE_A_RELEVANT_UNSUPPORTED",
+                    "confidence": 0.99,
+                    "risk": security_check.get("risk_level", "HIGH"),
+                    "requires_auth": False,
+                    "requires_human": False,
+                    "action_required": False
+                },
+                "response_guidance": {"tone": "professional_firm", "preserve_pending_workflow": True},
+                "guardrail_response": security_check
+            }
 
         # 1. FRAUD / SECURITY / STOLEN PHONE ESCALATION (Critical Risk - Top Priority)
         if any(k in msg_lower for k in [
@@ -199,16 +226,25 @@ class GeminiEngine:
                 "response_guidance": {"tone": "urgent_reassuring", "preserve_pending_workflow": False}
             }
 
-        # 2. TYPE E: Explicit Human Agent Request (HUMAN_HANDOFF - Priority 2)
-        human_regex = r'\b(?:connect|talk|speak)\s+(?:me\s+)?(?:to\s+|with\s+)?(?:an?\s+)?(?:agent|human|person|executive|representative|specialist|someone|somebody|customer\s+care|customer\s+support)\b'
+        # 2. TYPE E: Human Agent Request (Explicit, Indirect & Hinglish)
+        human_regex = r'\b(?:connect|talk|speak)\s+(?:me\s+)?(?:to\s+|with\s+)?(?:an?\s+)?(?:agent|human|person|executive|representative|specialist|someone|somebody|customer\s+care|customer\s+support|your\s+team)\b'
+        indirect_human_regex = r'\b(?:don\'t|dont)\s+want\s+to\s+deal\s+with\s+a\s+bot\b|\bcan\s+someone\s+help\s+me\b|\bis\s+there\s+a\s+real\s+person\b|\bput\s+me\s+through\s+to\s+support\b|\bneed\s+to\s+speak\s+with\s+somebody\b|\bget\s+an\s+executive\s+on\s+this\b|\brather\s+talk\s+to\s+a\s+human\b|\blet\s+me\s+talk\s+to\s+your\s+team\b|\bsomeone\s+from\s+support\s+call\s+me\b|\bi\s+want\s+an\s+actual\s+person\b|\benough,?\s+connect\s+me\s+to\s+someone\b|\bagent\s+se\s+baat\s+kara\s+do\b'
         human_phrases = [
             "connect with an agent", "connect with agent", "connect me with an agent",
             "talk to a human", "talk to human", "talk to someone", "talk to somebody",
             "i want a human", "i want customer support", "let me speak to a representative",
             "call support", "connect with customer care", "speak to agent", "connect to executive",
-            "speak to a real person", "human agent", "customer care agent", "support person"
+            "speak to a real person", "human agent", "customer care agent", "support person",
+            "agent se baat kara do", "put me through to support", "i want an actual person",
+            "i don't want to deal with a bot anymore", "dont want to deal with a bot anymore"
         ]
-        if re.search(human_regex, msg_lower) or any(k in msg_lower for k in human_phrases):
+        is_human_request = (
+            msg_lower == "agent" or
+            re.search(human_regex, msg_lower) or
+            re.search(indirect_human_regex, msg_lower) or
+            any(k in msg_lower for k in human_phrases)
+        )
+        if is_human_request and not re.search(r'\bcan\s+you\s+help\s+me\b', msg_lower):
             return {
                 "understanding": {
                     "intent": "HUMAN_HANDOFF",
@@ -229,14 +265,47 @@ class GeminiEngine:
                 "response_guidance": {"tone": "empathetic_swift", "preserve_pending_workflow": True}
             }
 
-        # 3. WORKFLOW FAILURE: Bank Verification Failure / Penny Drop Failure (Priority 3)
-        bank_fail_regex = r'\b(?:penny\s+drop|bank\s+verification|account\s+verification|ifsc\s+verification|account\s+validation|bank\s+check)\s+(?:verification\s+)?(?:failed|isn\'t\s+working|is\s+not\s+working|didn\'t\s+work|not\s+going\s+through)\b'
+        # 2B. MIXED INTENT: Compound Query & Action (e.g. Penny drop failed + What's my rate?)
+        if ("penny drop" in msg_lower or "bank" in msg_lower) and any(k in msg_lower for k in ["interest rate", "how much i can borrow", "foreclosure", "charges"]):
+            return {
+                "understanding": {
+                    "intent": "MIXED_QUERY_AND_ACTION",
+                    "speech_act": "COMPOUND_REQUEST",
+                    "entities": entities,
+                    "topic": "COMPOUND_LENDING",
+                    "user_goal": "ANSWER_THEN_ACT"
+                },
+                "decision": {
+                    "route": "COMPOUND_ACTION",
+                    "domain_type": "TYPE_B_RELEVANT_ANSWERABLE",
+                    "confidence": 0.95,
+                    "risk": "MEDIUM",
+                    "requires_auth": True,
+                    "requires_human": False,
+                    "action_required": True
+                },
+                "response_guidance": {"tone": "direct_clear", "preserve_pending_workflow": True}
+            }
+
+        # 3. WORKFLOW FAILURE: Bank Verification Failure (Colloquial, Typos, Hinglish)
         bank_fail_phrases = [
             "penny drop verification failed", "penny drop failed", "my penny drop failed",
             "bank verification isn't working", "account verification failed", "the bank check failed",
-            "my ifsc verification didn't work", "account validation failed", "verification isn't going through"
+            "my ifsc verification didn't work", "account validation failed", "verification isn't going through",
+            "my bank thing didn't work", "the verification just keeps failing", "why isn't my account getting verified",
+            "bank check failed again", "penny drop isn't happening", "it said verification unsuccessful",
+            "my account verification got rejected", "the ₹1 verification didn't go through",
+            "the 1 rupee verification didn't go through", "that small amount verification failed",
+            "bank validation is stuck", "it's not accepting my bank details",
+            "everything is correct but it still says failed", "penny drop fail", "penny drp failed",
+            "my bank verfication faild", "bank accnt not verifing", "why pennydrop not working",
+            "verification nahi ho raha", "bank verify nhi hua", "mera bank verify nahi ho rha",
+            "penny drop baar baar fail ho raha", "penny drop fail ho gaya", "bhai bank verification nahi ho rha",
+            "account number sahi hai fir bhi verify nahi hua", "ifsc correct hai but verification failed",
+            "baar baar fail ho raha hai"
         ]
-        if re.search(bank_fail_regex, msg_lower) or any(k in msg_lower for k in bank_fail_phrases):
+        bank_fail_regex = r'\b(?:penny\s*drop|bank\s*verification|account\s*verification|bank\s*acc(?:ou)?nt|ifsc|pennydrop|small\s+amount\s+verification|₹1\s+verification|1\s+rupee\s+verification)\b.*?\b(?:fail|faild|failed|not\s+working|rejected|unsuccessful|stuck|nhi\s+hua|nahi\s+ho\s+r(?:ah|h)a)\b'
+        if any(k in msg_lower for k in bank_fail_phrases) or re.search(bank_fail_regex, msg_lower):
             return {
                 "understanding": {
                     "intent": "BANK_VERIFICATION_FAILURE",
@@ -257,22 +326,202 @@ class GeminiEngine:
                 "response_guidance": {"tone": "actionable_reassuring", "preserve_pending_workflow": True}
             }
 
-        # 4. WORKFLOW RETRY / CONTINUATION: Try Verification Again
-        if any(k in msg_lower for k in [
-            "try the verification again", "try verification again", "retry verification",
-            "retry penny drop", "retry again", "try the bank check again"
-        ]):
+        # 4. Context-dependent "It failed" / "failed" / "nothing is working"
+        if msg_lower in ["it failed", "failed", "it's not working", "failed again", "verification failed"]:
+            if (
+                context.get("active_goal") == "BANK_ACCOUNT_CHANGE" or
+                context.get("workflow_state") in ["BANK_VERIFICATION", "AUTOPAY_REVIEW"] or
+                context.get("pending_action") in ["AWAITING_BANK_DETAILS", "AWAITING_ESIGN"]
+            ):
+                return {
+                    "understanding": {
+                        "intent": "BANK_VERIFICATION_FAILURE",
+                        "speech_act": "WORKFLOW_ERROR",
+                        "entities": entities,
+                        "topic": "BANK_VERIFICATION",
+                        "user_goal": "RESOLVE_BANK_VERIFICATION"
+                    },
+                    "decision": {
+                        "route": "WORKFLOW_EXCEPTION",
+                        "domain_type": "TYPE_D_WORKFLOW_FAILURE",
+                        "confidence": 0.95,
+                        "risk": "MEDIUM",
+                        "requires_auth": True,
+                        "requires_human": False,
+                        "action_required": True
+                    },
+                    "response_guidance": {"tone": "actionable_reassuring", "preserve_pending_workflow": True}
+                }
+            else:
+                return {
+                    "understanding": {
+                        "intent": "CLARIFICATION_REQUIRED",
+                        "speech_act": "AMBIGUOUS_ERROR",
+                        "entities": {},
+                        "topic": "GENERAL",
+                        "user_goal": "CLARIFY"
+                    },
+                    "decision": {
+                        "route": "CLARIFY",
+                        "domain_type": "TYPE_B_RELEVANT_ANSWERABLE",
+                        "confidence": 0.70,
+                        "risk": "LOW",
+                        "requires_auth": False,
+                        "requires_human": False,
+                        "action_required": False
+                    },
+                    "response_guidance": {"tone": "helpful_inquiry", "preserve_pending_workflow": True}
+                }
+
+        # 5. WORKFLOW RETRY / CONTINUATION: Try Verification Again (Pronoun / Context Aware)
+        if msg_lower in [
+            "again", "try that again", "do it once more", "retry", "isko dobara try kar sakte hain kya?",
+            "isko dobara try kar sakte hain kya", "try again", "try the verification again",
+            "try verification again", "retry verification", "retry penny drop", "try the bank check again"
+        ]:
+            if (
+                context.get("failed_attempts", 0) > 0 or
+                context.get("workflow_state") in ["BANK_VERIFICATION", "AUTOPAY_REVIEW"] or
+                context.get("active_goal") == "BANK_ACCOUNT_CHANGE"
+            ):
+                return {
+                    "understanding": {
+                        "intent": "WORKFLOW_CONTINUATION",
+                        "speech_act": "CONTINUE",
+                        "entities": entities,
+                        "topic": "BANK_VERIFICATION",
+                        "user_goal": "RETRY_VERIFICATION"
+                    },
+                    "decision": {
+                        "route": "WORKFLOW_ACTION",
+                        "domain_type": "TYPE_D_WORKFLOW_ACTION",
+                        "confidence": 0.99,
+                        "risk": "LOW",
+                        "requires_auth": True,
+                        "requires_human": False,
+                        "action_required": True
+                    },
+                    "response_guidance": {"tone": "proactive_clear", "preserve_pending_workflow": True}
+                }
+            else:
+                return {
+                    "understanding": {
+                        "intent": "CLARIFICATION_REQUIRED",
+                        "speech_act": "AMBIGUOUS_ACTION",
+                        "entities": {},
+                        "topic": "GENERAL",
+                        "user_goal": "CLARIFY"
+                    },
+                    "decision": {
+                        "route": "CLARIFY",
+                        "domain_type": "TYPE_B_RELEVANT_ANSWERABLE",
+                        "confidence": 0.70,
+                        "risk": "LOW",
+                        "requires_auth": False,
+                        "requires_human": False,
+                        "action_required": False
+                    },
+                    "response_guidance": {"tone": "helpful_inquiry", "preserve_pending_workflow": True}
+                }
+
+        # 6. Context Switching & Pronoun Reference: Home Loan vs LAMF
+        if any(k in msg_lower for k in ["what about my home loan", "check my home loan", "switch to home loan", "actually check my home loan"]):
             return {
                 "understanding": {
-                    "intent": "WORKFLOW_CONTINUATION",
-                    "speech_act": "CONTINUE",
+                    "intent": "APPLICATION_STATUS",
+                    "speech_act": "QUESTION",
+                    "entities": {"application_id": "APP-HL-1092", "product_type": "Home Loan"},
+                    "topic": "STATUS_LOOKUP",
+                    "user_goal": "CHECK_HOME_LOAN_STATUS"
+                },
+                "decision": {
+                    "route": "INFORMATION_QUERY",
+                    "domain_type": "TYPE_C_RELEVANT_LIVE_DATA",
+                    "confidence": 0.99,
+                    "risk": "LOW",
+                    "requires_auth": True,
+                    "requires_human": False,
+                    "action_required": False
+                },
+                "response_guidance": {"tone": "direct_clear", "preserve_pending_workflow": False}
+            }
+
+        if any(k in msg_lower for k in ["what about the first one", "actually go back to the lamf one", "go back to lamf", "check my lamf status"]):
+            return {
+                "understanding": {
+                    "intent": "APPLICATION_STATUS",
+                    "speech_act": "QUESTION",
+                    "entities": {"application_id": "APP-LAMF-8831", "product_type": "Loan Against Mutual Funds (LAMF)"},
+                    "topic": "STATUS_LOOKUP",
+                    "user_goal": "CHECK_LAMF_STATUS"
+                },
+                "decision": {
+                    "route": "INFORMATION_QUERY",
+                    "domain_type": "TYPE_C_RELEVANT_LIVE_DATA",
+                    "confidence": 0.99,
+                    "risk": "LOW",
+                    "requires_auth": True,
+                    "requires_human": False,
+                    "action_required": False
+                },
+                "response_guidance": {"tone": "direct_clear", "preserve_pending_workflow": False}
+            }
+
+        if msg_lower in ["check its status", "what is its status", "track it", "status of this one"]:
+            current_app = context.get("entities", {}).get("application_id", "APP-HL-1092")
+            return {
+                "understanding": {
+                    "intent": "APPLICATION_STATUS",
+                    "speech_act": "QUESTION",
+                    "entities": {"application_id": current_app},
+                    "topic": "STATUS_LOOKUP",
+                    "user_goal": "CHECK_CURRENT_STATUS"
+                },
+                "decision": {
+                    "route": "INFORMATION_QUERY",
+                    "domain_type": "TYPE_C_RELEVANT_LIVE_DATA",
+                    "confidence": 0.99,
+                    "risk": "LOW",
+                    "requires_auth": True,
+                    "requires_human": False,
+                    "action_required": False
+                },
+                "response_guidance": {"tone": "direct_clear", "preserve_pending_workflow": False}
+            }
+
+        if any(k in msg_lower for k in ["which bank is linked to it", "which bank is linked", "what bank account"]):
+            return {
+                "understanding": {
+                    "intent": "APPLICATION_STATUS",
+                    "speech_act": "QUESTION",
+                    "entities": {"inquiry": "linked_bank"},
+                    "topic": "LINKED_BANK_LOOKUP",
+                    "user_goal": "CHECK_LINKED_BANK"
+                },
+                "decision": {
+                    "route": "INFORMATION_QUERY",
+                    "domain_type": "TYPE_C_RELEVANT_LIVE_DATA",
+                    "confidence": 0.99,
+                    "risk": "LOW",
+                    "requires_auth": True,
+                    "requires_human": False,
+                    "action_required": False
+                },
+                "response_guidance": {"tone": "direct_clear", "preserve_pending_workflow": False}
+            }
+
+        if msg_lower in ["change it", "change that", "change bank"]:
+            return {
+                "understanding": {
+                    "intent": "CHANGE_BANK_ACCOUNT",
+                    "speech_act": "REQUEST_ACTION",
                     "entities": entities,
-                    "topic": "BANK_VERIFICATION",
-                    "user_goal": "RETRY_VERIFICATION"
+                    "topic": "BANK_ACCOUNT_CHANGE",
+                    "user_goal": "MUTATE_BANK_ACCOUNT"
                 },
                 "decision": {
                     "route": "WORKFLOW_ACTION",
-                    "domain_type": "TYPE_D_WORKFLOW_ACTION",
+                    "domain_type": "TYPE_D_MUTATION_REQUEST",
                     "confidence": 0.99,
                     "risk": "LOW",
                     "requires_auth": True,
@@ -280,6 +529,74 @@ class GeminiEngine:
                     "action_required": True
                 },
                 "response_guidance": {"tone": "proactive_clear", "preserve_pending_workflow": True}
+            }
+
+        # 7. Short Messages & Interruption Resumption
+        if msg_lower == "status":
+            return {
+                "understanding": {
+                    "intent": "APPLICATION_STATUS",
+                    "speech_act": "QUESTION",
+                    "entities": entities,
+                    "topic": "STATUS_LOOKUP",
+                    "user_goal": "CHECK_STATUS"
+                },
+                "decision": {
+                    "route": "INFORMATION_QUERY",
+                    "domain_type": "TYPE_C_RELEVANT_LIVE_DATA",
+                    "confidence": 0.99,
+                    "risk": "LOW",
+                    "requires_auth": True,
+                    "requires_human": False,
+                    "action_required": False
+                },
+                "response_guidance": {"tone": "direct_clear", "preserve_pending_workflow": False}
+            }
+
+        if msg_lower in [
+            "okay continue changing my bank account", "continue changing my bank account",
+            "continue the bank change", "continue bank change"
+        ]:
+            return {
+                "understanding": {
+                    "intent": "CHANGE_BANK_ACCOUNT",
+                    "speech_act": "RESUME_WORKFLOW",
+                    "entities": entities,
+                    "topic": "BANK_ACCOUNT_CHANGE",
+                    "user_goal": "RESUME_BANK_CHANGE"
+                },
+                "decision": {
+                    "route": "WORKFLOW_ACTION",
+                    "domain_type": "TYPE_D_MUTATION_REQUEST",
+                    "confidence": 0.99,
+                    "risk": "LOW",
+                    "requires_auth": True,
+                    "requires_human": False,
+                    "action_required": True
+                },
+                "response_guidance": {"tone": "proactive_clear", "preserve_pending_workflow": True}
+            }
+
+        # 8. Mixed Intent: "my penny drop failed and I also want to know my interest rate"
+        if ("penny drop" in msg_lower or "bank" in msg_lower) and any(k in msg_lower for k in ["interest rate", "how much i can borrow", "foreclosure"]):
+            return {
+                "understanding": {
+                    "intent": "MIXED_QUERY_AND_ACTION",
+                    "speech_act": "COMPOUND_REQUEST",
+                    "entities": entities,
+                    "topic": "COMPOUND_LENDING",
+                    "user_goal": "ANSWER_THEN_ACT"
+                },
+                "decision": {
+                    "route": "COMPOUND_ACTION",
+                    "domain_type": "TYPE_B_RELEVANT_ANSWERABLE",
+                    "confidence": 0.95,
+                    "risk": "MEDIUM",
+                    "requires_auth": True,
+                    "requires_human": False,
+                    "action_required": True
+                },
+                "response_guidance": {"tone": "direct_clear", "preserve_pending_workflow": True}
             }
 
         # 3. GUARDRAIL: Credit Underwriting Bypass ("approve loan now", "reduce rate to 5%")
@@ -1008,14 +1325,20 @@ class GeminiEngine:
     def _parse_amount(cls, text: str) -> Optional[float]:
         clean = text.lower().replace(",", "").replace("₹", "").replace("rs", "").strip()
         clean = clean.replace("unlock", "").replace("max", "").replace("full", "").strip()
-        if "lakh" in clean or "lac" in clean or "l" in clean:
-            nums = re.findall(r"[\d\.]+", clean)
+        if re.search(r'\b(?:lakh|lac|l)\b', clean):
+            nums = re.findall(r"\d+(?:\.\d+)?", clean)
             if nums:
-                return float(nums[0]) * 100000
-        if "k" in clean:
-            nums = re.findall(r"[\d\.]+", clean)
+                try:
+                    return float(nums[0]) * 100000
+                except ValueError:
+                    pass
+        if re.search(r'\b\d+(?:\.\d+)?k\b', clean):
+            nums = re.findall(r"\d+(?:\.\d+)?", clean)
             if nums:
-                return float(nums[0]) * 1000
+                try:
+                    return float(nums[0]) * 1000
+                except ValueError:
+                    pass
 
         words = clean.split()
         for w in words:
