@@ -1,6 +1,7 @@
 import re
 import os
 import json
+import time
 from typing import Dict, Any, List, Optional, Tuple
 from backend.app.gemini_engine import GeminiEngine
 
@@ -18,7 +19,10 @@ class ConversationState:
         self.session_id = session_id
         self.active_goal: Optional[str] = None
         self.workflow_state: str = "IDLE"
+        self.conversation_state: str = "NORMAL"  # NORMAL, ANSWERING, WORKFLOW, ESCALATING, AGENT_CONNECTED
+        self.ticket_id: Optional[str] = None
         self.pending_action: Optional[str] = None
+        self.failed_attempts: int = 0
         self.interruption_stack: List[Dict[str, Any]] = []
         self.entities: Dict[str, Any] = {
             "pan": None,
@@ -28,15 +32,42 @@ class ConversationState:
             "interest_rate": 10.5,
             "bank_account": "HDFC Bank (XXXX-3294)",
             "app_id": "APP-LAMF-8831",
-            "name": "Aryan Agarwal"
+            "application_id": "APP-LAMF-8831",
+            "name": "Aryan Agarwal",
+            "product_type": "Loan Against Mutual Funds (LAMF)"
         }
         self.history: List[Dict[str, str]] = []
+
+    def set_context(self, app_id: Optional[str]):
+        if not app_id or app_id == "GUEST":
+            self.entities["app_id"] = None
+            self.entities["application_id"] = None
+            self.entities["name"] = "Guest Visitor"
+            self.entities["product_type"] = None
+            return
+
+        self.entities["app_id"] = app_id
+        self.entities["application_id"] = app_id
+        if "LAMF" in app_id:
+            self.entities["name"] = "Aryan Agarwal"
+            self.entities["product_type"] = "Loan Against Mutual Funds (LAMF)"
+            self.entities["bank_account"] = "HDFC Bank (XXXX-3294)"
+            self.entities["portfolio_value"] = 640000.0
+            self.entities["max_limit"] = 320000.0
+        elif "HL" in app_id:
+            self.entities["name"] = "Rahul Sharma"
+            self.entities["product_type"] = "Home Loan"
+            self.entities["bank_account"] = "ICICI Bank (XXXX-8821)"
+            self.entities["sanctioned_amount"] = 2500000.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "session_id": self.session_id,
             "active_goal": self.active_goal,
             "workflow_state": self.workflow_state,
+            "conversation_state": self.conversation_state,
+            "ticket_id": self.ticket_id,
+            "failed_attempts": self.failed_attempts,
             "pending_action": self.pending_action,
             "entities": self.entities,
             "interruption_stack": self.interruption_stack
@@ -168,6 +199,14 @@ class DialogueManager:
         entities = analysis["entities"]
 
         state.history.append({"role": "user", "content": message})
+
+        # ROUTE 0: BANK VERIFICATION FAILURE (Adaptive failure handling)
+        if intent == "BANK_VERIFICATION_FAILURE":
+            return cls._handle_bank_verification_failure(state, analysis)
+
+        # ROUTE 0B: WORKFLOW RETRY / CONTINUATION (Retry penny drop)
+        if intent == "WORKFLOW_CONTINUATION":
+            return cls._handle_workflow_retry(state)
 
         # ROUTE 1: USER FRUSTRATION
         if speech_act == "FRUSTRATION" or intent == "EXPRESS_FRUSTRATION":
@@ -452,17 +491,74 @@ class DialogueManager:
         return cls._format_response(resp, chips, "HOME_LOAN_START", "Cognitive Dialogue Manager")
 
     @classmethod
-    def _default_response(cls, state: ConversationState, raw_text: str) -> Dict[str, Any]:
+    def _handle_bank_verification_failure(cls, state: ConversationState, analysis: Dict[str, Any]) -> Dict[str, Any]:
+        state.failed_attempts += 1
+        bank = state.entities.get("bank_account", "HDFC Bank ending 3294")
+        if state.failed_attempts >= 2:
+            state.conversation_state = "ESCALATING"
+            ticket_num = int(time.time() * 1000) % 100000
+            ticket_id = f"TICK-LA-{ticket_num}"
+            state.ticket_id = ticket_id
+            resp = (
+                f"The bank verification has failed again for {bank}. "
+                f"Rather than making you retry repeatedly, I have created Priority Ticket **#{ticket_id}** "
+                f"and routed your case directly to our **Technical Gateway Operations** team to unblock your account."
+            )
+            chips = ["View Agent Workspace", "Try Verification Again", "Return to Assistant"]
+            state.history.append({"role": "assistant", "content": resp})
+            res = cls._format_response(resp, chips, "BANK_VERIFICATION_FAILURE", "Technical Gateway Operations")
+            res["basket"] = "BASKET_4_HUMAN_ESCALATION"
+            res["escalation_score"] = 0.65
+            res["ticket_id"] = ticket_id
+            res["ticket"] = {
+                "ticket_id": ticket_id,
+                "priority": "P2_HIGH",
+                "escalation_level": "LEVEL_2_SPECIALIST",
+                "customer": {
+                    "name": state.entities.get("name", "Aryan Agarwal"),
+                    "application_id": state.entities.get("application_id", "APP-LAMF-8831")
+                },
+                "conversation": {
+                    "detected_intent": "BANK_VERIFICATION_FAILURE"
+                },
+                "ai_recommendation": {
+                    "assigned_desk": "Technical Gateway Operations",
+                    "reason_for_escalation": f"Repeated bank verification / penny drop failure for {bank}."
+                }
+            }
+            return res
+
         resp = (
-            f"I'm right here with you! You mentioned: \"{raw_text}\". 😊\n\n"
-            f"How would you like to proceed today?\n"
-            f"1️⃣ **Loan Against Mutual Funds (LAMF)** — borrow without liquidating units.\n"
-            f"2️⃣ **Home Loan** — tailored interest rates and step-by-step guidance.\n"
-            f"3️⃣ **Check Status** of an existing application."
+            "The bank verification didn’t go through. "
+            "This can happen if the account details or IFSC don’t match the bank records. "
+            "Please recheck your account number and IFSC, and I’ll help you retry the verification."
         )
-        chips = ["Apply for LAMF", "Home Loan Application", "Check Application Status", "Calculate EMI"]
+        chips = ["Try Verification Again", "Change Bank Account", "Connect with an Agent"]
         state.history.append({"role": "assistant", "content": resp})
-        return cls._format_response(resp, chips, "GENERAL_CONVERSATION", "Master Cognitive Agent")
+        return cls._format_response(resp, chips, "BANK_VERIFICATION_FAILURE", "NPCI / Bank Verification Gateway")
+
+    @classmethod
+    def _handle_workflow_retry(cls, state: ConversationState) -> Dict[str, Any]:
+        bank = state.entities.get("bank_account", "HDFC Bank ending 3294")
+        resp = (
+            f"Re-initiating the ₹1 penny drop verification with NPCI for **{bank}**. "
+            "Please ensure your registered mobile number is active to receive the confirmation alert."
+        )
+        chips = ["Confirm Account Details", "e-Sign Agreement & Disburse", "Connect with an Agent"]
+        state.history.append({"role": "assistant", "content": resp})
+        return cls._format_response(resp, chips, "WORKFLOW_CONTINUATION", "NPCI / Core Banking Gateway")
+
+    @classmethod
+    def _default_response(cls, state: ConversationState, raw_text: str) -> Dict[str, Any]:
+        app_id = state.entities.get("application_id") or state.entities.get("app_id")
+        app_ctx = f" regarding application {app_id}" if app_id else ""
+        resp = (
+            f"I want to make sure I assist you accurately with your loan{app_ctx}. "
+            "Could you clarify if you'd like to check your application status, continue with Loan Against Mutual Funds, or speak directly with an advisor?"
+        )
+        chips = ["Check Application Status", "Apply for LAMF", "Connect with an Agent"]
+        state.history.append({"role": "assistant", "content": resp})
+        return cls._format_response(resp, chips, "CLARIFICATION_REQUIRED", "Master Cognitive Agent")
 
     @classmethod
     def _format_response(cls, text: str, chips: List[str], intent: str, source: str) -> Dict[str, Any]:

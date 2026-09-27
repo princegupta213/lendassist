@@ -6,6 +6,8 @@ import socketserver
 import urllib.parse
 import json
 import time
+import re
+from typing import Dict, Any, Optional, List
 from backend.app.cognitive_engine import DialogueManager
 from backend.app.policy_engine import PolicyEngine
 from backend.app.domain_guard import DomainGuardrail
@@ -53,45 +55,169 @@ ANALYTICS_DATA = {
     "strategy_b_metrics": { "name": "Natural Concise (1-3 sentences)", "turns": 4.1, "csat": 4.6, "escalations": 14.5, "p95_latency_ms": 420 }
 }
 
+class EventNormalizer:
+    @classmethod
+    def normalize(cls, req_data: Dict[str, Any]) -> Dict[str, Any]:
+        raw_msg = req_data.get("message", "").strip()
+        msg_lower = raw_msg.lower()
+        if any(k in msg_lower for k in ["call priority support", "1800-easy-hl"]):
+            return {"type": "UI_ACTION", "action": "CALL_PRIORITY_SUPPORT", "payload": req_data}
+        elif "return to assistant" in msg_lower:
+            return {"type": "UI_ACTION", "action": "RETURN_TO_ASSISTANT", "payload": req_data}
+        elif "view agent workspace" in msg_lower:
+            return {"type": "UI_ACTION", "action": "VIEW_AGENT_WORKSPACE", "payload": req_data}
+        return {"type": "CUSTOMER_MESSAGE", "message": raw_msg, "payload": req_data}
+
+
+class ActionHandler:
+    @classmethod
+    def handle_ui_action(cls, action: str, state: Any, req_data: Dict[str, Any], start_time: float) -> Dict[str, Any]:
+        latency = round((time.time() - start_time) * 1000, 1)
+        app_id = state.entities.get("application_id") or state.entities.get("app_id") or "APP-HL-1092"
+        if action == "CALL_PRIORITY_SUPPORT":
+            log_event("UI_ACTION_CALL_SUPPORT", {"app_id": app_id})
+            return {
+                "basket": "BASKET_4_HUMAN_ESCALATION",
+                "intent": "CALL_PRIORITY_SUPPORT",
+                "confidence": 0.99,
+                "risk_level": "HIGH",
+                "source_authority": "Priority Support Gateway",
+                "latency_ms": latency,
+                "response": "Connecting you directly to our Priority Care Desk at **1800-EASY-HL (1800-3279-45)**. Your verified loan file is flagged for immediate executive assistance.",
+                "action_chips": ["View Agent Workspace", "Return to Assistant"],
+                "escalation_analysis": {
+                    "decision": "ESCALATE",
+                    "score": 0.85,
+                    "level": "LEVEL_3_PRIORITY",
+                    "priority": "P1_CRITICAL",
+                    "factors": {"risk_score": 0.0, "explicit_request": 0.85, "repeated_failure": 0.0, "ai_uncertainty": 0.0, "customer_frustration": 0.0, "workflow_failure": 0.0},
+                    "why": "Customer initiated direct phone connection to Priority Support."
+                }
+            }
+        elif action == "RETURN_TO_ASSISTANT":
+            state.conversation_state = "NORMAL"
+            log_event("UI_ACTION_RETURN_ASSISTANT", {"app_id": app_id})
+            return {
+                "basket": "BASKET_2_GUIDED_WORKFLOW",
+                "intent": "RETURN_TO_ASSISTANT",
+                "confidence": 0.99,
+                "risk_level": "LOW",
+                "source_authority": "Cognitive Dialogue Manager",
+                "latency_ms": latency,
+                "response": f"Welcome back! Your application for **{app_id}** is safely preserved. What would you like to explore next?",
+                "action_chips": ["Check Application Status", "Explain Agreement / KFS", "Apply for LAMF"],
+                "escalation_analysis": {
+                    "decision": "ANSWER",
+                    "score": 0.0,
+                    "level": "LEVEL_0_AI",
+                    "priority": "P4_LOW",
+                    "factors": {"risk_score": 0.0, "explicit_request": 0.0, "repeated_failure": 0.0, "ai_uncertainty": 0.0, "customer_frustration": 0.0, "workflow_failure": 0.0},
+                    "why": "Customer returned to digital assistant from human workspace."
+                }
+            }
+        elif action == "VIEW_AGENT_WORKSPACE":
+            return {
+                "basket": "BASKET_4_HUMAN_ESCALATION",
+                "intent": "VIEW_AGENT_WORKSPACE",
+                "confidence": 0.99,
+                "risk_level": "LOW",
+                "source_authority": "Agent Workspace View",
+                "latency_ms": latency,
+                "response": "Opening Agent Workspace Dossier...",
+                "action_chips": ["Return to Assistant"],
+                "escalation_analysis": {
+                    "decision": "ESCALATE",
+                    "score": 0.70,
+                    "level": "LEVEL_3_PRIORITY",
+                    "priority": "P2_HIGH",
+                    "factors": {"risk_score": 0.0, "explicit_request": 0.85, "repeated_failure": 0.0, "ai_uncertainty": 0.0, "customer_frustration": 0.0, "workflow_failure": 0.0},
+                    "why": "Agent Workspace Dossier accessed."
+                }
+            }
+        return {
+            "basket": "BASKET_2_GUIDED_WORKFLOW",
+            "intent": "GENERAL_CONVERSATION",
+            "confidence": 0.99,
+            "risk_level": "LOW",
+            "source_authority": "System Event Handler",
+            "latency_ms": latency,
+            "response": "Ready to assist you with your loan options.",
+            "action_chips": ["Apply for LAMF", "Check Application Status"]
+        }
+
+
 def process_chat_message(req_data):
     start_time = time.time()
-    msg = req_data.get("message", "").strip()
-    msg_lower = msg.lower()
     session_id = req_data.get("conversation_id", "default_session")
     auth_state = req_data.get("auth_state", False)
     app_id = req_data.get("app_id")
     simulation = req_data.get("simulation", {})
     strategy = req_data.get("strategy", "natural_concise")
 
+    # 1. Retrieve & actively sync session context
+    state = DialogueManager.get_or_create_state(session_id)
+    if app_id:
+        state.set_context(app_id)
+    state_dict = state.to_dict()
+
+    # 2. Event Normalization (Separate UI_ACTION from CUSTOMER_MESSAGE)
+    event = EventNormalizer.normalize(req_data)
+    if event["type"] == "UI_ACTION":
+        return ActionHandler.handle_ui_action(event["action"], state, req_data, start_time)
+
+    msg = req_data.get("message", "").strip()
+    msg_lower = msg.lower()
+
     log_event("CHAT_MESSAGE_RECEIVED", {
         "msg": msg, "auth": auth_state, "app_id": app_id, 
         "session": session_id, "simulation": simulation, "strategy": strategy
     })
 
-    # Retrieve or initialize session state for escalation context
-    state = DialogueManager.get_or_create_state(session_id)
-    state_dict = state.to_dict()
-    if app_id:
-        if "entities" not in state_dict:
-            state_dict["entities"] = {}
-        state_dict["entities"]["application_id"] = app_id
-        if "HL" in app_id:
-            state_dict["entities"]["name"] = "Rahul Sharma"
-            state_dict["entities"]["product_type"] = "Home Loan"
-        elif "LAMF" in app_id:
-            state_dict["entities"]["name"] = "Aryan Agarwal"
-            state_dict["entities"]["product_type"] = "Loan Against Mutual Funds (LAMF)"
-
-    # Pre-detect preliminary intent for escalation scoring
+    # 3. PRIORITY ROUTER: Hierarchy of System Intents
     preliminary_intent = "GENERAL_INQUIRY"
-    if any(k in msg_lower for k in ["stole", "fraud", "unauthorized", "stolen", "police", "hacked"]):
+
+    # Priority 1: Emergency & Fraud
+    if any(k in msg_lower for k in [
+        "stole", "fraud", "unauthorized", "stolen", "police", "hacked",
+        "someone took a loan using my account", "someone took a loan", "unauthorized debit", "compromised"
+    ]):
         preliminary_intent = "FRAUD_ESCALATION"
+
+    # Priority 2: Explicit Human Request (HUMAN_HANDOFF)
+    elif (
+        any(re.search(pat, msg_lower) for pat in [
+            r'\b(?:connect|talk|speak)\s+(?:me\s+)?(?:to\s+|with\s+)?(?:an?\s+)?(?:agent|human|person|executive|representative|specialist|someone|somebody|customer\s+care|customer\s+support)\b',
+            r'\b(?:i\s+want\s+(?:a\s+)?human|i\s+want\s+customer\s+support|let\s+me\s+speak|call\s+support|human\s+agent|real\s+person|customer\s+care|support\s+person)\b'
+        ]) or
+        any(k in msg_lower for k in [
+            "connect with an agent", "connect with agent", "connect me with an agent",
+            "talk to a human", "talk to human", "talk to someone", "i want a human",
+            "i want customer support", "let me speak to a representative", "call support",
+            "connect with customer care", "speak to agent", "connect to executive",
+            "speak to a real person", "human agent", "customer care agent"
+        ])
+    ):
+        preliminary_intent = "HUMAN_HANDOFF"
+
+    # Priority 3: Workflow Failures (Bank Verification / Penny Drop / KYC / RTA)
+    elif any(k in msg_lower for k in [
+        "penny drop verification failed", "penny drop failed", "my penny drop failed",
+        "bank verification isn't working", "bank verification is not working",
+        "account verification failed", "the bank check failed", "my ifsc verification didn't work",
+        "account validation failed", "verification isn't going through"
+    ]):
+        preliminary_intent = "BANK_VERIFICATION_FAILURE"
+
     elif any(k in msg_lower for k in ["die", "death", "deceased", "nominee"]):
         preliminary_intent = "LOAN_SETTLEMENT_DECEASED"
-    elif any(k in msg_lower for k in ["talk to human", "speak to agent", "connect to executive", "human agent", "support person"]):
-        preliminary_intent = "TALK_TO_AGENT"
 
-    # Evaluate via Risk-Aware Escalation Decision System
+    elif any(k in msg_lower for k in [
+        "try the verification again", "try verification again", "retry verification",
+        "retry penny drop", "retry again", "try the bank check again"
+    ]):
+        preliminary_intent = "WORKFLOW_CONTINUATION"
+
+    # 4. Evaluate via Risk-Aware Escalation Decision System
     decision, factors, handoff_packet = EscalationDecisionSystem.evaluate(
         message=msg,
         intent=preliminary_intent,
@@ -100,7 +226,7 @@ def process_chat_message(req_data):
         simulated_overrides=simulation
     )
 
-    # 1. If System Decides to ESCALATE:
+    # 5. If System Decides to ESCALATE:
     if decision == "ESCALATE" and handoff_packet:
         ticket = handoff_packet.to_dict()
         SUPPORT_TICKETS.insert(0, ticket)
@@ -109,11 +235,23 @@ def process_chat_message(req_data):
         log_event("HUMAN_ESCALATION_TRIGGERED", ticket)
 
         desk_name = handoff_packet.ai_recommendation["assigned_desk"]
-        resp_text = (
-            f"I want to make sure you get immediate, specialized support. "
-            f"I have created Priority Ticket **#{ticket['ticket_id']}** and routed your case directly to our **{desk_name}**.\n\n"
-            f"A specialist has received your verified file and will assist you immediately."
-        )
+        if preliminary_intent in ["HUMAN_HANDOFF", "TALK_TO_AGENT"]:
+            resp_text = (
+                "Absolutely. I’ll connect you with a support specialist and share this conversation with them so you don’t have to repeat yourself."
+            )
+            ticket["conversation"]["detected_intent"] = "HUMAN_HANDOFF"
+        elif preliminary_intent == "BANK_VERIFICATION_FAILURE":
+            resp_text = (
+                f"The bank verification has failed again. Rather than making you retry repeatedly, "
+                f"I have created Priority Ticket **#{ticket['ticket_id']}** and routed your case directly to our **{desk_name}** team to unblock your account."
+            )
+        else:
+            resp_text = (
+                f"I want to make sure you get immediate, specialized support. "
+                f"I have created Priority Ticket **#{ticket['ticket_id']}** and routed your case directly to our **{desk_name}**.\n\n"
+                f"A specialist has received your verified file and will assist you immediately."
+            )
+
         latency = round((time.time() - start_time) * 1000, 1)
         return {
             "basket": "BASKET_4_HUMAN_ESCALATION",
@@ -136,7 +274,7 @@ def process_chat_message(req_data):
             "action_chips": ["View Agent Workspace", "Call Priority Support (1800-EASY-HL)", "Return to Assistant"]
         }
 
-    # 2. Guardrail: Unauthorized Credit Approval / Rate Override
+    # 6. Guardrail: Unauthorized Credit Approval / Rate Override
     if any(k in msg_lower for k in ["approve my loan", "sanction my loan immediately", "reduce interest rate to 5%", "guarantee approval", "lower rate to 4%"]):
         resp_text = (
             "As an automated advisor, I cannot approve loans or override sanctioned interest rates. "
@@ -162,31 +300,33 @@ def process_chat_message(req_data):
             "action_chips": ["Check Eligibility Criteria", "Speak with Loan Officer"]
         }
 
-    # 3. Domain Boundary Guardrail (Off-topic queries)
-    is_domain, off_topic_msg = DomainGuardrail.check_query_domain(msg)
-    if not is_domain:
-        latency = round((time.time() - start_time) * 1000, 1)
-        return {
-            "basket": "OUT_OF_DOMAIN_REFRAME",
-            "intent": "OUT_OF_DOMAIN_QUERY",
-            "confidence": 0.99,
-            "risk_level": "LOW",
-            "source_authority": "Domain Boundary Guardrail",
-            "latency_ms": latency,
-            "response": off_topic_msg,
-            "escalation_analysis": {
-                "decision": "ANSWER",
-                "score": 0.05,
-                "level": "LEVEL_0_AI",
-                "priority": "P4_LOW",
-                "factors": factors.to_dict(),
-                "why": "Polite out-of-domain reframing executed."
-            },
-            "action_chips": ["Apply for LAMF", "Home Loan Application", "Check Application Status", "Calculate EMI"]
-        }
-
-    # 4. Core Cognitive Dialogue Manager Execution
+    # 7. Core Cognitive Dialogue Manager Execution
     result = DialogueManager.handle_message(session_id, msg)
+
+    # 8. Domain Boundary Guardrail (Off-topic queries - checked as last resort)
+    if result.get("intent") == "CLARIFICATION_REQUIRED":
+        is_domain, off_topic_msg = DomainGuardrail.check_query_domain(msg)
+        if not is_domain:
+            latency = round((time.time() - start_time) * 1000, 1)
+            return {
+                "basket": "OUT_OF_DOMAIN_REFRAME",
+                "intent": "OUT_OF_DOMAIN_QUERY",
+                "confidence": 0.99,
+                "risk_level": "LOW",
+                "source_authority": "Domain Boundary Guardrail",
+                "latency_ms": latency,
+                "response": off_topic_msg,
+                "escalation_analysis": {
+                    "decision": "ANSWER",
+                    "score": 0.05,
+                    "level": "LEVEL_0_AI",
+                    "priority": "P4_LOW",
+                    "factors": factors.to_dict(),
+                    "why": "Polite out-of-domain reframing executed."
+                },
+                "action_chips": ["Apply for LAMF", "Home Loan Application", "Check Application Status", "Calculate EMI"]
+            }
+
     latency = round((time.time() - start_time) * 1000, 1)
     result["latency_ms"] = latency
     result["escalation_analysis"] = {

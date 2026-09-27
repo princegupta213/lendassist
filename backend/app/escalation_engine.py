@@ -115,14 +115,18 @@ class EscalationDecisionSystem:
 
         # 2. Evaluate Explicit Request (0.0 or 0.85)
         human_patterns = [
-            r'\b(?:talk|speak|connect)\s+(?:me\s+)?(?:to\s+)?(?:a\s+)?(?:human|person|agent|executive|representative|specialist)\b',
-            r'\b(?:human\s+agent|real\s+person|customer\s+care|support\s+person|call\s+me|talk\s+to\s+somebody)\b'
+            r'\b(?:connect|talk|speak)\s+(?:me\s+)?(?:to\s+|with\s+)?(?:an?\s+)?(?:agent|human|person|executive|representative|specialist|someone|somebody|customer\s+care|customer\s+support)\b',
+            r'\b(?:i\s+want\s+(?:a\s+)?human|i\s+want\s+customer\s+support|let\s+me\s+speak|call\s+support|human\s+agent|real\s+person|customer\s+care|support\s+person)\b'
         ]
         is_explicit = (
-            intent == "TALK_TO_AGENT" or
+            intent in ["HUMAN_HANDOFF", "TALK_TO_AGENT", "HUMAN_AGENT_REQUEST"] or
             sim.get("explicit_human_request") or
             any(re.search(pat, msg_lower) for pat in human_patterns) or
-            any(kw in msg_lower for kw in ["speak to agent", "talk to human", "connect to agent", "representative"])
+            any(kw in msg_lower for kw in [
+                "connect with an agent", "connect with agent", "connect me with an agent",
+                "speak to agent", "talk to human", "connect to agent", "representative",
+                "talk to someone", "i want a human", "call support", "customer care", "customer support"
+            ])
         )
         if is_explicit:
             factors.explicit_request = 0.85
@@ -131,6 +135,8 @@ class EscalationDecisionSystem:
         failure_count = context.get("failed_attempts", 0)
         if sim.get("repeated_failures"):
             failure_count = max(failure_count, sim.get("repeated_failures"))
+        if any(k in msg_lower for k in ["failed again", "tried this three times", "tried three times"]):
+            failure_count = max(failure_count, 2)
         if failure_count >= 3:
             factors.repeated_failure = 0.30
         elif failure_count == 2:
@@ -151,7 +157,17 @@ class EscalationDecisionSystem:
             factors.customer_frustration = 0.25
 
         # 6. Evaluate Workflow / API Failure (0.0 to 0.35)
-        if context.get("api_error") or sim.get("api_failure") or sim.get("kyc_failure") or sim.get("rta_timeout"):
+        if (
+            intent in ["BANK_VERIFICATION_FAILURE", "KYC_FAILURE", "RTA_TIMEOUT"] or
+            context.get("api_error") or
+            sim.get("api_failure") or
+            sim.get("kyc_failure") or
+            sim.get("rta_timeout") or
+            any(k in msg_lower for k in [
+                "penny drop verification failed", "penny drop failed", "my penny drop failed",
+                "bank verification isn't working", "account verification failed", "the bank check failed"
+            ])
+        ):
             factors.workflow_failure = 0.35
 
         # Calculate Total Escalation Score (0.0 to 1.0)
@@ -254,6 +270,8 @@ class EscalationDecisionSystem:
         assigned_desk = "Senior Loan Advisory Desk"
         if intent in cls.HIGH_RISK_INTENTS:
             assigned_desk = cls.HIGH_RISK_INTENTS[intent][2]
+        elif intent in ["HUMAN_HANDOFF", "TALK_TO_AGENT"]:
+            assigned_desk = "Priority Support Desk"
         elif priority == "P1_CRITICAL":
             assigned_desk = "Priority Fraud Desk"
         elif factors.workflow_failure > 0:

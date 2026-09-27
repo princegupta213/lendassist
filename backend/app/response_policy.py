@@ -57,8 +57,11 @@ class ResponsePolicy:
         speech_act: str,
         domain_type: str,
         workflow_state: str,
-        message: str = ""
+        message: str = "",
+        entities: Optional[Dict[str, Any]] = None
     ) -> ResponsePolicyConfig:
+        if entities is None:
+            entities = {}
         msg_lower = message.lower().strip()
 
         # 1. HUMAN_ESCALATION / COMPLAINT
@@ -170,6 +173,11 @@ class ResponsePolicy:
                     allow_followup_question=False,
                     next_action=None
                 )
+            app_id = entities.get("application_id") or entities.get("app_id") or "APP-HL-1092"
+            if "LAMF" in str(app_id):
+                allowed_facts = [str(app_id), "credit line ₹2,50,000", "CAMS lien active", "HDFC Bank ending 3294"]
+            else:
+                allowed_facts = [str(app_id), "Technical Verification", "property deeds", "3 business days"]
             return ResponsePolicyConfig(
                 archetype="MULTI_POINT",
                 max_sentences=1,
@@ -177,7 +185,7 @@ class ResponsePolicy:
                 format_style="bullets",
                 tone="direct_clear",
                 information_priority=["application stage", "pending items", "estimated TAT"],
-                allowed_facts=["APP-HL-1092", "Technical Verification", "property deeds", "3 business days"],
+                allowed_facts=allowed_facts,
                 allow_followup_question=False,
                 next_action=None
             )
@@ -194,6 +202,48 @@ class ResponsePolicy:
                 allowed_facts=["current bank", "new bank name", "account number", "IFSC", "penny drop"],
                 allow_followup_question=False,
                 next_action="COLLECT_BANK_DETAILS"
+            )
+
+        # 6B. HUMAN_HANDOFF Policy
+        if intent in ["HUMAN_HANDOFF", "HUMAN_AGENT_REQUEST", "TALK_TO_AGENT"]:
+            return ResponsePolicyConfig(
+                archetype="ESCALATION",
+                max_sentences=2,
+                max_bullets=0,
+                format_style="sentence",
+                tone="empathetic_swift",
+                information_priority=["acknowledgment of specialist handoff", "conversation context preserved"],
+                allowed_facts=["support specialist", "share conversation", "no repetition"],
+                allow_followup_question=False,
+                next_action=None
+            )
+
+        # 6C. BANK_VERIFICATION_FAILURE Policy
+        if intent == "BANK_VERIFICATION_FAILURE":
+            return ResponsePolicyConfig(
+                archetype="WORKFLOW_ERROR",
+                max_sentences=2,
+                max_bullets=0,
+                format_style="sentence",
+                tone="actionable_reassuring",
+                information_priority=["verification status", "suggested retry or escalation"],
+                allowed_facts=["bank verification", "account details", "IFSC", "retry"],
+                allow_followup_question=False,
+                next_action="RETRY_VERIFICATION"
+            )
+
+        # 6D. CLARIFICATION_REQUIRED Policy
+        if intent == "CLARIFICATION_REQUIRED":
+            return ResponsePolicyConfig(
+                archetype="CLARIFICATION",
+                max_sentences=2,
+                max_bullets=0,
+                format_style="sentence",
+                tone="helpful_direct",
+                information_priority=["clarification question"],
+                allowed_facts=["clarification required"],
+                allow_followup_question=True,
+                next_action=None
             )
 
         if workflow_state in ["PORTFOLIO_REVIEW", "OTP_VERIFICATION", "AUTOPAY_REVIEW"]:

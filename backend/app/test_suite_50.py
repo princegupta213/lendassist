@@ -70,11 +70,11 @@ TEST_CONVERSATIONS = [
     # CHAT 6: Explicit Human Agent Request
     {
         "chat_id": "CHAT_06_HUMAN_AGENT_REQUEST",
-        "description": "User demands human assistance directly",
+        "description": "User demands human assistance directly and triggers UI actions",
         "turns": [
-            ("Can I speak to a human agent please", "HUMAN_AGENT_REQUEST"),
-            ("connect to executive", "HUMAN_AGENT_REQUEST"),
-            ("Call Priority Support (1800-EASY-HL)", "GENERAL_CONVERSATION")
+            ("Can I speak to a human agent please", "HUMAN_HANDOFF"),
+            ("connect to executive", "HUMAN_HANDOFF"),
+            ("Call Priority Support (1800-EASY-HL)", "CALL_PRIORITY_SUPPORT")
         ]
     },
     # CHAT 7: Credit Underwriting Guardrail (Bypass Attempt)

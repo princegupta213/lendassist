@@ -173,36 +173,11 @@ class GeminiEngine:
         if pan:
             entities["pan"] = pan
 
-        # 1. TYPE E: Explicit Human Agent Request
-        if any(k in msg_lower for k in [
-            "talk to human", "speak to agent", "connect to executive", "human agent",
-            "support person", "human please", "speak to someone", "connect with human",
-            "customer care", "call priority support"
-        ]):
-            return {
-                "understanding": {
-                    "intent": "HUMAN_AGENT_REQUEST",
-                    "speech_act": "HUMAN_REQUEST",
-                    "entities": entities,
-                    "topic": "SUPPORT_ESCALATION",
-                    "user_goal": "SPEAK_WITH_HUMAN"
-                },
-                "decision": {
-                    "route": "HUMAN_ESCALATION",
-                    "domain_type": "TYPE_E_HUMAN_REQUEST",
-                    "confidence": 0.99,
-                    "risk": "HIGH",
-                    "requires_auth": False,
-                    "requires_human": True,
-                    "action_required": False
-                },
-                "response_guidance": {"tone": "empathetic_swift", "preserve_pending_workflow": True}
-            }
-
-        # 2. FRAUD / SECURITY / STOLEN PHONE ESCALATION (Critical Risk)
+        # 1. FRAUD / SECURITY / STOLEN PHONE ESCALATION (Critical Risk - Top Priority)
         if any(k in msg_lower for k in [
             "fraud", "police", "legal notice", "threat", "bribe", "hacked",
-            "stolen", "unauthorized", "stole my phone", "unauthorized debit"
+            "stolen", "unauthorized", "stole my phone", "unauthorized debit",
+            "someone took a loan using my account", "someone took a loan", "unauthorized transaction"
         ]):
             return {
                 "understanding": {
@@ -222,6 +197,89 @@ class GeminiEngine:
                     "action_required": False
                 },
                 "response_guidance": {"tone": "urgent_reassuring", "preserve_pending_workflow": False}
+            }
+
+        # 2. TYPE E: Explicit Human Agent Request (HUMAN_HANDOFF - Priority 2)
+        human_regex = r'\b(?:connect|talk|speak)\s+(?:me\s+)?(?:to\s+|with\s+)?(?:an?\s+)?(?:agent|human|person|executive|representative|specialist|someone|somebody|customer\s+care|customer\s+support)\b'
+        human_phrases = [
+            "connect with an agent", "connect with agent", "connect me with an agent",
+            "talk to a human", "talk to human", "talk to someone", "talk to somebody",
+            "i want a human", "i want customer support", "let me speak to a representative",
+            "call support", "connect with customer care", "speak to agent", "connect to executive",
+            "speak to a real person", "human agent", "customer care agent", "support person"
+        ]
+        if re.search(human_regex, msg_lower) or any(k in msg_lower for k in human_phrases):
+            return {
+                "understanding": {
+                    "intent": "HUMAN_HANDOFF",
+                    "speech_act": "HUMAN_REQUEST",
+                    "entities": entities,
+                    "topic": "SUPPORT_ESCALATION",
+                    "user_goal": "SPEAK_WITH_HUMAN"
+                },
+                "decision": {
+                    "route": "HUMAN_ESCALATION",
+                    "domain_type": "TYPE_E_HUMAN_REQUEST",
+                    "confidence": 0.99,
+                    "risk": "HIGH",
+                    "requires_auth": False,
+                    "requires_human": True,
+                    "action_required": False
+                },
+                "response_guidance": {"tone": "empathetic_swift", "preserve_pending_workflow": True}
+            }
+
+        # 3. WORKFLOW FAILURE: Bank Verification Failure / Penny Drop Failure (Priority 3)
+        bank_fail_regex = r'\b(?:penny\s+drop|bank\s+verification|account\s+verification|ifsc\s+verification|account\s+validation|bank\s+check)\s+(?:verification\s+)?(?:failed|isn\'t\s+working|is\s+not\s+working|didn\'t\s+work|not\s+going\s+through)\b'
+        bank_fail_phrases = [
+            "penny drop verification failed", "penny drop failed", "my penny drop failed",
+            "bank verification isn't working", "account verification failed", "the bank check failed",
+            "my ifsc verification didn't work", "account validation failed", "verification isn't going through"
+        ]
+        if re.search(bank_fail_regex, msg_lower) or any(k in msg_lower for k in bank_fail_phrases):
+            return {
+                "understanding": {
+                    "intent": "BANK_VERIFICATION_FAILURE",
+                    "speech_act": "WORKFLOW_ERROR",
+                    "entities": entities,
+                    "topic": "BANK_VERIFICATION",
+                    "user_goal": "RESOLVE_BANK_VERIFICATION"
+                },
+                "decision": {
+                    "route": "WORKFLOW_EXCEPTION",
+                    "domain_type": "TYPE_D_WORKFLOW_FAILURE",
+                    "confidence": 0.99,
+                    "risk": "MEDIUM",
+                    "requires_auth": True,
+                    "requires_human": False,
+                    "action_required": True
+                },
+                "response_guidance": {"tone": "actionable_reassuring", "preserve_pending_workflow": True}
+            }
+
+        # 4. WORKFLOW RETRY / CONTINUATION: Try Verification Again
+        if any(k in msg_lower for k in [
+            "try the verification again", "try verification again", "retry verification",
+            "retry penny drop", "retry again", "try the bank check again"
+        ]):
+            return {
+                "understanding": {
+                    "intent": "WORKFLOW_CONTINUATION",
+                    "speech_act": "CONTINUE",
+                    "entities": entities,
+                    "topic": "BANK_VERIFICATION",
+                    "user_goal": "RETRY_VERIFICATION"
+                },
+                "decision": {
+                    "route": "WORKFLOW_ACTION",
+                    "domain_type": "TYPE_D_WORKFLOW_ACTION",
+                    "confidence": 0.99,
+                    "risk": "LOW",
+                    "requires_auth": True,
+                    "requires_human": False,
+                    "action_required": True
+                },
+                "response_guidance": {"tone": "proactive_clear", "preserve_pending_workflow": True}
             }
 
         # 3. GUARDRAIL: Credit Underwriting Bypass ("approve loan now", "reduce rate to 5%")
@@ -790,7 +848,8 @@ class GeminiEngine:
                     speech_act=u_data.get("speech_act", ""),
                     domain_type=d_data.get("domain_type", ""),
                     workflow_state=context.get("workflow_state", "IDLE"),
-                    message=context.get("last_user_message", "")
+                    message=context.get("last_user_message", ""),
+                    entities=context.get("entities", {})
                 )
             except Exception as e:
                 print(f"[ResponsePolicy Evaluation Fallback]: {e}")
@@ -865,20 +924,49 @@ class GeminiEngine:
             else:
                 return "Your lien is pending CAMS OTP authorization."
 
-        # 5. MULTI_POINT: Application Status
+        # 5. MULTI_POINT: Application Status (Dynamic context-aware)
         if intent == "APPLICATION_STATUS":
-            return (
-                "Here is the status of your application APP-HL-1092:\n\n"
-                "• It is currently undergoing Technical Verification.\n"
-                "• Pending items include property chain deeds and your latest electricity bill.\n"
-                "• The estimated turnaround time is 3 business days."
-            )
+            app_id = entities.get("application_id") or entities.get("app_id") or "APP-HL-1092"
+            cust_name = entities.get("name", "Applicant")
+            if "LAMF" in str(app_id):
+                return (
+                    f"Here is the status of your application {app_id}:\n\n"
+                    f"• Approved credit line is ₹2,50,000.\n"
+                    f"• CAMS lien pledge is verified and active.\n"
+                    f"• Repayments are linked to your HDFC Bank account ending 3294."
+                )
+            else:
+                return (
+                    f"Here is the status of your application {app_id}:\n\n"
+                    f"• It is currently undergoing Technical Verification.\n"
+                    f"• Pending items include property chain deeds and your latest electricity bill.\n"
+                    f"• The estimated turnaround time is 3 business days."
+                )
 
         # 6. WORKFLOW: Bank Account Change
         if intent == "CHANGE_BANK_ACCOUNT":
             return (
                 f"Your disbursal account is currently set to {bank}. Please share your new Bank Name, Account Number, and IFSC so we can verify it with a ₹1 penny drop."
             )
+
+        # 6B. HUMAN_HANDOFF / EXPLICIT HUMAN REQUEST
+        if intent in ["HUMAN_HANDOFF", "HUMAN_AGENT_REQUEST", "TALK_TO_AGENT"]:
+            return "Absolutely. I’ll connect you with a support specialist and share this conversation with them so you don’t have to repeat yourself."
+
+        # 6C. BANK_VERIFICATION_FAILURE (Adaptive failure handling)
+        if intent == "BANK_VERIFICATION_FAILURE":
+            failed_attempts = state_dict.get("failed_attempts", 0)
+            if failed_attempts >= 2:
+                return "The bank verification has failed again. Rather than making you retry repeatedly, I am connecting you with our verification team to assist you directly."
+            return "The bank verification didn’t go through. This can happen if the account details or IFSC don’t match the bank records. Please recheck your account number and IFSC, and I’ll help you retry the verification."
+
+        # 6D. WORKFLOW RETRY / CONTINUATION
+        if intent == "WORKFLOW_CONTINUATION":
+            return "Re-initiating the ₹1 penny drop verification with NPCI for your bank account. Please ensure your mobile number is active to receive the confirmation alert."
+
+        # 6E. CLARIFICATION_REQUIRED
+        if intent == "CLARIFICATION_REQUIRED":
+            return "I can help with that. Did your bank verification fail while changing your bank account, or during your loan application?"
 
         # 7. SIMPLE_FACT / MULTI_POINT: Policy & RAG Answers
         if intent == "INQUIRE_INTEREST_RATE":
@@ -911,7 +999,7 @@ class GeminiEngine:
             )
 
         # Fallback to verified fact string or default
-        return verified_data.get("text", "I'm right here with you! How can I assist your loan journey today?")
+        return verified_data.get("text", "I'm right here to assist you with your loan options, application status, or specialist support.")
 
     # -------------------------------------------------------------------------
     # HELPERS: ENTITY EXTRACTION
